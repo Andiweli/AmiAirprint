@@ -1,4 +1,4 @@
-# AmiAirPrint 1.0
+# ![AmiAirPrint Prefs Icon](https://github.com/Andiweli/AmiAirprint/blob/main/images/prefsicon.png) AmiAirPrint 1.0
 
 ![AmigaOS](https://img.shields.io/badge/AmigaOS-3.0%2B-orange)
 ![Printing](https://img.shields.io/badge/Printing-AirPrint%20%2F%20IPP-blue)
@@ -25,6 +25,13 @@ AmiAirPrint integrates network printers with the standard AmigaOS `printer.devic
 - AmigaOS 3.2+ ReAction preferences program
 - both preferences programs use the same settings file
 - locale.library/catalog support with built-in English fallback
+
+## Screenshots
+
+<div align="center">
+<img width="431" height="308" alt="image" src="https://github.com/user-attachments/assets/03a610db-3430-4e4e-88f2-c2e13ed11bb2" />
+<img width="620" height="227" alt="image" src="https://github.com/user-attachments/assets/0bf9fc1e-a7f1-4cd1-b47c-a281dbd9c2d9" />
+</div>
 
 ## Requirements
 
