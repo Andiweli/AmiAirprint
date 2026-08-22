@@ -1,5 +1,9 @@
 # AmiAirPrint 1.0
 
+![AmigaOS](https://img.shields.io/badge/AmigaOS-3.0%2B-orange)
+![Printing](https://img.shields.io/badge/Printing-AirPrint%20%2F%20IPP-blue)
+![AI](https://img.shields.io/badge/Development-AI--assisted-6e7781)
+
 **Native AirPrint / IPP printing for classic AmigaOS 3.0 and newer.**
 
 AmiAirPrint integrates network printers with the standard AmigaOS `printer.device` system. Applications can print normal Amiga raster graphics and processed text without CUPS, a PC print server, or a printer-specific classic Amiga driver.
