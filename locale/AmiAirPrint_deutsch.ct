@@ -1,0 +1,388 @@
+## version $VER: AmiAirPrint.catalog 1.1 (22.08.2026)
+## language deutsch
+## codeset 4
+;
+; German translation for AmiAirPrint 1.1
+; ISO-8859-1 / MIBenum 4
+; Keep all %s, %u and %lu placeholders unchanged.
+;
+MSG_WINDOW_TITLE
+AmiAirPrint Einstellungen
+; AmiAirPrint Prefs
+;
+MSG_WINDOW_TITLE_CLASSIC
+AmiAirPrint Einstellungen (Classic)
+; AmiAirPrint Prefs (Classic)
+;
+MSG_NOT_QUERIED
+Nicht abgefragt
+; Not queried
+;
+MSG_PORTRAIT
+Hochformat
+; Portrait
+;
+MSG_LANDSCAPE
+Querformat
+; Landscape
+;
+MSG_COLOR
+Farbe
+; Color
+;
+MSG_MONOCHROME
+Schwarzweiß
+; Monochrome
+;
+MSG_AUTOMATIC
+Automatisch
+; Automatic
+;
+MSG_AUTO_MONOCHROME
+Automatisch Schwarzweiß
+; Auto monochrome
+;
+MSG_DRAFT
+Entwurf
+; Draft
+;
+MSG_NORMAL
+Normal
+; Normal
+;
+MSG_HIGH
+Hoch
+; High
+;
+MSG_LABEL_PRINTER_IP
+Drucker-IP
+; Printer IP
+;
+MSG_LABEL_PORT
+Port
+; Port
+;
+MSG_BUTTON_QUERY_REACTION
+_Drucker abfragen
+; _Query printer
+;
+MSG_BUTTON_QUERY_CLASSIC
+Drucker abfragen
+; Query printer
+;
+MSG_LABEL_IPP_PATH
+IPP-Pfad
+; IPP path
+;
+MSG_LABEL_PRINTER
+Drucker
+; Printer
+;
+MSG_LABEL_STATUS
+Status
+; Status
+;
+MSG_LABEL_PROTOCOL
+Protokoll
+; Protocol
+;
+MSG_LABEL_RESOLUTION
+Auflösung
+; Resolution
+;
+MSG_LABEL_DPI
+DPI
+; DPI
+;
+MSG_LABEL_DUPLEX
+Duplex
+; Duplex
+;
+MSG_LABEL_INK
+Tinte
+; Ink
+;
+MSG_LABEL_COLOR_MODE
+Farbmodus
+; Color mode
+;
+MSG_LABEL_COLOR
+Farbe
+; Color
+;
+MSG_LABEL_QUALITY
+Qualität
+; Quality
+;
+MSG_LABEL_PAPER
+Papier
+; Paper
+;
+MSG_LABEL_ORIENTATION
+Ausrichtung
+; Orientation
+;
+MSG_LABEL_PAGE
+Seite
+; Page
+;
+MSG_LABEL_SCALE_PERCENT
+Skalierung (%)
+; Scale (%)
+;
+MSG_LABEL_SCALE_PERCENT_CLASSIC
+Skalierung %
+; Scale %
+;
+MSG_CENTER_ON_PAPER
+Auf Papier zentrieren
+; Center on paper
+;
+MSG_BUTTON_TESTPAGE_REACTION
+_Testseite
+; _Testpage
+;
+MSG_BUTTON_SAVE_REACTION
+_Speichern
+; _Save
+;
+MSG_BUTTON_CANCEL_REACTION
+_Abbrechen
+; _Cancel
+;
+MSG_BUTTON_TESTPAGE_CLASSIC
+Testseite
+; Testpage
+;
+MSG_BUTTON_SAVE_CLASSIC
+Speichern
+; Save
+;
+MSG_BUTTON_CANCEL_CLASSIC
+Abbrechen
+; Cancel
+;
+MSG_UNKNOWN_PRINTER
+Unbekannter Drucker
+; Unknown printer
+;
+MSG_NOT_REPORTED
+Nicht gemeldet
+; Not reported
+;
+MSG_SUPPORTED
+Unterstützt
+; Supported
+;
+MSG_NOT_SUPPORTED
+Nicht unterstützt
+; Not supported
+;
+MSG_STATE_READY
+Bereit
+; Ready
+;
+MSG_STATE_PRINTING
+Druckt
+; Printing
+;
+MSG_STATE_STOPPED
+Angehalten
+; Stopped
+;
+MSG_STATE_UNKNOWN
+Unbekannt
+; Unknown
+;
+MSG_SUFFIX_NOT_ACCEPTING
+ - nimmt keine Aufträge an
+;  - not accepting jobs
+;
+MSG_SUFFIX_CHECK_STATUS
+ - Druckerstatus prüfen
+;  - check printer status
+;
+MSG_FORMAT_AIRPRINT_IPP
+AirPrint %s / IPP %u.%u
+; AirPrint %s / IPP %u.%u
+;
+MSG_FORMAT_IPP
+IPP %u.%u
+; IPP %u.%u
+;
+MSG_FORMAT_DPI
+%lux%lu dpi
+; %lux%lu dpi
+;
+MSG_STATUS_ENTER_IPV4
+Zuerst die IPv4-Adresse des Druckers eingeben
+; Enter the printer IPv4 address first
+;
+MSG_STATUS_IPP_PATH_SLASH
+IPP-Pfad muss mit '/' beginnen
+; IPP path must start with '/'
+;
+MSG_STATUS_INVALID_PORT
+Ungültiger TCP-Port
+; Invalid TCP port
+;
+MSG_STATUS_QUERYING
+Drucker wird abgefragt...
+; Querying printer...
+;
+MSG_FORMAT_QUERY_FAILED
+Abfrage fehlgeschlagen: %s
+; Query failed: %s
+;
+MSG_STATUS_ADDRESS_CHANGED
+Adresse geändert - Drucker erneut abfragen
+; Address changed - query printer again
+;
+MSG_STATUS_QUERY_BEFORE_TEST
+Vor dem Drucken der Testseite den Drucker abfragen
+; Query the printer before printing a test page
+;
+MSG_STATUS_PRINTING_TEST
+Testseite wird gedruckt...
+; Printing test page...
+;
+MSG_FORMAT_TEST_FAILED
+Testseite fehlgeschlagen: %s
+; Test page failed: %s
+;
+MSG_UNKNOWN_PRINT_ERROR
+Unbekannter Druckfehler
+; Unknown print error
+;
+MSG_FORMAT_TEST_SUCCESS_JOB
+Testseite erfolgreich gesendet - Auftrag %lu
+; Test page sent successfully - job %lu
+;
+MSG_STATUS_TEST_SUCCESS
+Testseite erfolgreich gesendet
+; Test page sent successfully
+;
+MSG_STATUS_QUERY_BEFORE_SAVE
+Vor dem Speichern den Drucker abfragen
+; Query the printer before saving settings
+;
+MSG_STATUS_ENV_WRITE_FAILED
+ENV:AirPrint.prefs konnte nicht geschrieben werden
+; Could not write ENV:AirPrint.prefs
+;
+MSG_STATUS_ENVARC_WRITE_FAILED
+ENV aktualisiert, aber ENVARC:AirPrint.prefs fehlgeschlagen
+; ENV updated, but ENVARC:AirPrint.prefs failed
+;
+MSG_STATUS_INITIAL
+Drucker-IP eingeben und Drucker abfragen
+; Enter printer IP and query the printer
+;
+MSG_CONSOLE_REACTION_REQUIRED
+AmiAirPrintPrefs %s benötigt AmigaOS 3.2 ReAction-Klassen.
+; AmiAirPrintPrefs %s requires AmigaOS 3.2 ReAction classes.
+;
+MSG_CONSOLE_BSDSOCKET_FAILED
+bsdsocket.library konnte nicht geöffnet werden: %s
+; Could not open bsdsocket.library: %s
+;
+MSG_CONSOLE_REACTION_WINDOW_FAILED
+ReAction-Fenster konnte nicht erstellt werden.
+; Could not create ReAction window.
+;
+MSG_CONSOLE_CLASSIC_REQUIRED
+AmiAirPrintPrefsClassic %s benötigt AmigaOS 3.0+ (V39 GadTools).
+; AmiAirPrintPrefsClassic %s requires AmigaOS 3.0+ (V39 GadTools).
+;
+MSG_CONSOLE_CLASSIC_WINDOW_FAILED
+GadTools-Einstellungsfenster konnte nicht erstellt werden.
+; Could not create the GadTools preferences window.
+;
+MSG_TESTPAGE_JOB_NAME
+AmigaOS AirPrint Testseite
+; AmigaOS AirPrint Test Page
+;
+MSG_MEDIA_A4
+A4
+; A4
+;
+MSG_MEDIA_A5
+A5
+; A5
+;
+MSG_MEDIA_B5_JIS
+B5 (JIS)
+; B5 (JIS)
+;
+MSG_MEDIA_LETTER
+Letter
+; Letter
+;
+MSG_MEDIA_LEGAL
+Legal
+; Legal
+;
+MSG_MEDIA_PHOTO_4X6
+Foto 4 x 6 Zoll
+; Photo 4 x 6 in
+;
+MSG_MEDIA_PHOTO_5X7
+Foto 5 x 7 Zoll
+; Photo 5 x 7 in
+;
+MSG_MEDIA_PHOTO_L
+Foto L 3,5 x 5 Zoll
+; Photo L 3.5 x 5 in
+;
+MSG_MEDIA_SQUARE_5X5
+Quadratisch 5 x 5 Zoll
+; Square 5 x 5 in
+;
+MSG_BUTTON_SEARCH_REACTION
+_Suchen...
+; _Search...
+;
+MSG_BUTTON_SEARCH_CLASSIC
+Suchen...
+; Search...
+;
+MSG_STATUS_SEARCHING
+Netzwerk wird nach IPP-Druckern durchsucht...
+; Searching network for IPP printers...
+;
+MSG_FORMAT_SEARCH_FAILED
+Suche fehlgeschlagen: %s
+; Search failed: %s
+;
+MSG_STATUS_SEARCH_NONE
+Keine IPP/AirPrint-Drucker gefunden
+; No IPP/AirPrint printers found
+;
+MSG_DISCOVERY_WINDOW_TITLE
+Drucker auswählen
+; Select printer
+;
+MSG_BUTTON_DISCOVERY_USE_REACTION
+_Übernehmen
+; _Use
+;
+MSG_BUTTON_DISCOVERY_USE_CLASSIC
+Übernehmen
+; Use
+;
+MSG_BUTTON_DISCOVERY_CANCEL_REACTION
+_Abbrechen
+; _Cancel
+;
+MSG_BUTTON_DISCOVERY_CANCEL_CLASSIC
+Abbrechen
+; Cancel
+;
+MSG_STATUS_PRINTER_SELECTED
+Drucker ausgewählt - Drucker abfragen
+; Printer selected - query printer
+;
+MSG_FORMAT_SEARCH_FOUND
+%u Drucker gefunden
+; %u printer(s) found
+;

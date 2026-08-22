@@ -156,7 +156,7 @@ int main(int argc, char **argv)
                  ap_arg_equals(argv[argi], "TEXTONLY")) text_mode = 1;
     }
 
-    ap_message("AirPrintPrinterTest " AMIAIRPRINT_VERSION_TEXT);
+    ap_message("AirPrintPrinterTest " AMIAIRPRINT_CORE_VERSION_TEXT);
     ap_message("printer.device -> DEVS:Printers/AirPrint -> airprint.device test");
     if (text_mode)
         ap_message("Mode: TEXT/CMD_WRITE (no Workbench RastPort dump will be opened)");
@@ -328,9 +328,9 @@ int main(int argc, char **argv)
 
     ap_message("[4/4] Submitting the complete Workbench RastPort through printer.device...");
     if (stretch_mode) {
-        ap_message("v" AMIAIRPRINT_VERSION_TEXT " STRETCH mode: use the open-time selected-media PED raster.");
+        ap_message("v" AMIAIRPRINT_CORE_VERSION_TEXT " STRETCH mode: use the open-time selected-media PED raster.");
     } else {
-        ap_message("v" AMIAIRPRINT_VERSION_TEXT " FIT mode: maximum selected-media width while preserving Workbench proportions.");
+        ap_message("v" AMIAIRPRINT_CORE_VERSION_TEXT " FIT mode: maximum selected-media width while preserving Workbench proportions.");
     }
     printf("Source: %ux%u  target request: %s\n",
            (unsigned int)pio->iodrp.io_SrcWidth,

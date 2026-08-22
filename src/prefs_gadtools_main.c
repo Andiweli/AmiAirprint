@@ -1,4 +1,5 @@
 #include "airprint_caps.h"
+#include "airprint_discovery.h"
 #include "ami_airprint_brand.h"
 #include "airprint_http.h"
 #include "airprint_prefs.h"
@@ -9,6 +10,7 @@
 
 #include <exec/types.h>
 #include <exec/libraries.h>
+#include <exec/lists.h>
 #include <intuition/intuition.h>
 #include <intuition/gadgetclass.h>
 #include <libraries/gadtools.h>
@@ -21,7 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define AIRPRINT_PREFS_CLASSIC_VERSION AMIAIRPRINT_VERSION_TEXT
+#define AIRPRINT_PREFS_CLASSIC_VERSION AMIAIRPRINT_PREFS_VERSION_TEXT
 #define AP_GUI_MEDIA_LABEL_LEN 80
 #define AP_MIN_WINDOW_WIDTH 560U
 #define AP_MAX_WINDOW_WIDTH 620U
@@ -40,7 +42,7 @@
 
 const char AmiAirPrintClassicBrand[] __attribute__((used)) = AMIAIRPRINT_BRAND_TEXT;
 const char AmiAirPrintClassicVersionTag[] __attribute__((used)) =
-    "$VER: AmiAirPrintPrefsClassic " AMIAIRPRINT_VERSION_TEXT " (" AMIAIRPRINT_VERSION_DATE ")\r\n" AMIAIRPRINT_BRAND_TEXT;
+    "$VER: AmiAirPrintPrefsClassic " AMIAIRPRINT_PREFS_VERSION_TEXT " (" AMIAIRPRINT_PREFS_VERSION_DATE ")\r\n" AMIAIRPRINT_BRAND_TEXT;
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct Library *GadToolsBase = NULL;
@@ -50,6 +52,7 @@ enum {
     GID_PORT,
     GID_PATH,
     GID_QUERY,
+    GID_SEARCH,
     GID_MODEL,
     GID_STATUS,
     GID_AIRPRINT,
@@ -99,6 +102,11 @@ struct APGUI {
     unsigned int media_count;
 
     int queried;
+
+    struct APDiscoveryResult discovery;
+    STRPTR discovery_labels[AP_DISCOVERY_MAX_PRINTERS + 1U];
+    char discovery_label_storage[AP_DISCOVERY_MAX_PRINTERS][AP_DISCOVERY_NAME_LEN + 48U];
+
     UWORD window_width;
     UWORD window_height;
     UWORD row_height;
@@ -438,6 +446,9 @@ struct APGUIGeometry {
     UWORD right_w;
     UWORD query_w;
     UWORD query_x;
+    UWORD search_w;
+    UWORD search_x;
+    UWORD path_w;
     UWORD port_x;
     UWORD host_w;
     UWORD test_w;
@@ -519,6 +530,7 @@ static ULONG ap_gui_required_window_width(const struct APGUI *gui)
     ULONG right_label_width;
     ULONG port_label_width;
     ULONG query_width;
+    ULONG search_width;
     ULONG test_width;
     ULONG save_width;
     ULONG cancel_width;
@@ -529,6 +541,8 @@ static ULONG ap_gui_required_window_width(const struct APGUI *gui)
                           &port_label_width);
     query_width = ap_gui_button_width(gui,
         AP_TR(MSG_BUTTON_QUERY_CLASSIC, "Query printer"), 126UL);
+    search_width = ap_gui_button_width(gui,
+        AP_TR(MSG_BUTTON_SEARCH_CLASSIC, "Search..."), 96UL);
     test_width = ap_gui_button_width(gui,
         AP_TR(MSG_BUTTON_TESTPAGE_CLASSIC, "Testpage"), 110UL);
     save_width = ap_gui_button_width(gui,
@@ -552,6 +566,11 @@ static ULONG ap_gui_required_window_width(const struct APGUI *gui)
                 AP_MIN_HOST_GADGET_WIDTH + AP_ROW_CONTROL_GAP +
                 port_label_width + AP_LABEL_GAP + AP_PORT_GADGET_WIDTH +
                 AP_ROW_CONTROL_GAP + query_width + AP_EDGE_MARGIN;
+    required = ap_gui_max_width(required, candidate);
+
+    candidate = AP_EDGE_MARGIN + primary_label_width + AP_LABEL_GAP +
+                AP_MIN_FULL_GADGET_WIDTH + AP_ROW_CONTROL_GAP +
+                search_width + AP_EDGE_MARGIN;
     required = ap_gui_max_width(required, candidate);
 
     candidate = AP_EDGE_MARGIN + test_width + AP_BOTTOM_BUTTON_GAP +
@@ -583,6 +602,9 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
     ULONG two_column_flexible;
     ULONG query_w;
     ULONG query_x;
+    ULONG search_w;
+    ULONG search_x;
+    ULONG path_w;
     ULONG port_x;
     ULONG host_right;
     ULONG host_w;
@@ -625,6 +647,14 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
     host_w = host_right - left_x;
     if (host_w < AP_MIN_HOST_GADGET_WIDTH) return 0;
 
+    search_w = ap_gui_button_width(gui,
+        AP_TR(MSG_BUTTON_SEARCH_CLASSIC, "Search..."), 96UL);
+    if (search_w + AP_EDGE_MARGIN >= width) return 0;
+    search_x = width - AP_EDGE_MARGIN - search_w;
+    if (search_x <= left_x + AP_ROW_CONTROL_GAP) return 0;
+    path_w = search_x - AP_ROW_CONTROL_GAP - left_x;
+    if (path_w < AP_MIN_FULL_GADGET_WIDTH) return 0;
+
     test_w = ap_gui_button_width(gui,
         AP_TR(MSG_BUTTON_TESTPAGE_CLASSIC, "Testpage"), 110UL);
     save_w = ap_gui_button_width(gui,
@@ -638,6 +668,7 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
 
     if (left_x > 65535UL || left_w > 65535UL || right_x > 65535UL ||
         right_w > 65535UL || query_w > 65535UL || query_x > 65535UL ||
+        search_w > 65535UL || search_x > 65535UL || path_w > 65535UL ||
         port_x > 65535UL || host_w > 65535UL || test_w > 65535UL ||
         save_w > 65535UL || cancel_w > 65535UL || button_x > 65535UL)
         return 0;
@@ -650,6 +681,9 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
     geo->right_w = (UWORD)right_w;
     geo->query_w = (UWORD)query_w;
     geo->query_x = (UWORD)query_x;
+    geo->search_w = (UWORD)search_w;
+    geo->search_x = (UWORD)search_x;
+    geo->path_w = (UWORD)path_w;
     geo->port_x = (UWORD)port_x;
     geo->host_w = (UWORD)host_w;
     geo->test_w = (UWORD)test_w;
@@ -730,8 +764,16 @@ static int ap_gui_build_gadgets(struct APGUI *gui)
     tags[3].ti_Data = 0UL;
     previous = ap_gui_add_gadget(gui, previous, STRING_KIND, GID_PATH,
                                  (STRPTR)AP_TR(MSG_LABEL_IPP_PATH, "IPP path"),
-                                 geo.full_x, y, geo.full_w, h,
+                                 geo.full_x, y, geo.path_w, h,
                                  PLACETEXT_LEFT, tags);
+    if (previous == NULL) return 0;
+
+    tags[0].ti_Tag = TAG_END;
+    tags[0].ti_Data = 0UL;
+    previous = ap_gui_add_gadget(gui, previous, BUTTON_KIND, GID_SEARCH,
+                                 (STRPTR)AP_TR(MSG_BUTTON_SEARCH_CLASSIC, "Search..."),
+                                 geo.search_x, y, geo.search_w, h,
+                                 PLACETEXT_IN, tags);
     if (previous == NULL) return 0;
 
     y = (UWORD)(y + gui->row_height);
@@ -1101,6 +1143,301 @@ static void ap_gui_close_window(struct APGUI *gui)
     gui->screen = NULL;
 }
 
+static void ap_gui_prepare_discovery_labels(struct APGUI *gui)
+{
+    unsigned int i;
+
+    if (gui == NULL) return;
+    for (i = 0U; i < gui->discovery.count && i < AP_DISCOVERY_MAX_PRINTERS; ++i) {
+        const struct APDiscoveredPrinter *printer;
+        printer = &gui->discovery.printers[i];
+        snprintf(gui->discovery_label_storage[i],
+                 sizeof(gui->discovery_label_storage[i]),
+                 "%s  (%s:%u)",
+                 printer->name[0] != '\0' ? printer->name : printer->host_name,
+                 printer->address,
+                 (unsigned int)printer->port);
+        gui->discovery_labels[i] = gui->discovery_label_storage[i];
+    }
+    gui->discovery_labels[i] = NULL;
+}
+
+static int ap_gui_choose_discovered(struct APGUI *gui, unsigned int *selected_index)
+{
+    enum {
+        GID_DISCOVERY_LIST = 1001,
+        GID_DISCOVERY_USE,
+        GID_DISCOVERY_CANCEL
+    };
+    struct Gadget *glist;
+    struct Gadget *previous;
+    struct Window *window;
+    struct TagItem tags[6];
+    struct TagItem window_tags[12];
+    struct NewGadget ng;
+    struct List printer_list;
+    struct Node printer_nodes[AP_DISCOVERY_MAX_PRINTERS];
+    ULONG screen_width;
+    ULONG screen_height;
+    UWORD width;
+    UWORD height;
+    UWORD gadget_height;
+    UWORD list_height;
+    LONG left;
+    LONG top;
+    unsigned int i;
+    ULONG active;
+    int done;
+    int accepted;
+
+    if (gui == NULL || selected_index == NULL || gui->discovery.count == 0U ||
+        gui->screen == NULL || gui->visual_info == NULL)
+        return 0;
+    ap_gui_prepare_discovery_labels(gui);
+
+    /* Initialize the Exec list locally. NewList() is an amiga.lib helper,
+     * not an exec.library entry point on all classic SDK combinations. */
+    printer_list.lh_Head = (struct Node *)&printer_list.lh_Tail;
+    printer_list.lh_Tail = NULL;
+    printer_list.lh_TailPred = (struct Node *)&printer_list.lh_Head;
+
+    for (i = 0U; i < gui->discovery.count && i < AP_DISCOVERY_MAX_PRINTERS; ++i) {
+        memset(&printer_nodes[i], 0, sizeof(printer_nodes[i]));
+        printer_nodes[i].ln_Name = (char *)gui->discovery_labels[i];
+        AddTail(&printer_list, &printer_nodes[i]);
+    }
+
+    screen_width = (ULONG)gui->screen->Width;
+    screen_height = (ULONG)gui->screen->Height;
+    width = (UWORD)(screen_width > 540UL ? 520UL : screen_width - 20UL);
+    if (width < 300U) width = (UWORD)(screen_width - 8UL);
+    height = (UWORD)(screen_height > 190UL ? 170UL : screen_height - 8UL);
+    gadget_height = (UWORD)(gui->screen->Font->ta_YSize + 9U);
+    if (gadget_height < 18U) gadget_height = 18U;
+    if (height <= gadget_height + 62U) return 0;
+    list_height = (UWORD)(height - gadget_height - 54U);
+
+    glist = NULL;
+    previous = CreateContext(&glist);
+    if (previous == NULL) return 0;
+
+    memset(&ng, 0, sizeof(ng));
+    ng.ng_LeftEdge = 18;
+    ng.ng_TopEdge = 28;
+    ng.ng_Width = (WORD)(width - 36U);
+    ng.ng_Height = list_height;
+    ng.ng_GadgetText = (UBYTE *)AP_TR(MSG_LABEL_PRINTER, "Printer");
+    ng.ng_TextAttr = gui->screen->Font;
+    ng.ng_GadgetID = GID_DISCOVERY_LIST;
+    ng.ng_Flags = PLACETEXT_ABOVE;
+    ng.ng_VisualInfo = gui->visual_info;
+    tags[0].ti_Tag = GTLV_Labels;
+    tags[0].ti_Data = (ULONG)&printer_list;
+    tags[1].ti_Tag = GTLV_ReadOnly;
+    tags[1].ti_Data = FALSE;
+    /* On GadTools V39+, GTLV_ShowSelected=NULL requests the normal
+     * highlight bar in the list itself.  Select the first printer by
+     * default so a single discovered printer is visibly selected too. */
+    tags[2].ti_Tag = GTLV_ShowSelected;
+    tags[2].ti_Data = 0UL;
+    tags[3].ti_Tag = GTLV_Selected;
+    tags[3].ti_Data = 0UL;
+    tags[4].ti_Tag = TAG_END;
+    tags[4].ti_Data = 0UL;
+    previous = CreateGadgetA(LISTVIEW_KIND, previous, &ng, tags);
+    if (previous == NULL) {
+        FreeGadgets(glist);
+        return 0;
+    }
+
+    memset(&ng, 0, sizeof(ng));
+    ng.ng_LeftEdge = (WORD)(width / 2U - 120U);
+    ng.ng_TopEdge = (WORD)(height - gadget_height - 10U);
+    ng.ng_Width = 105;
+    ng.ng_Height = gadget_height;
+    ng.ng_GadgetText = (UBYTE *)AP_TR(MSG_BUTTON_DISCOVERY_USE_CLASSIC, "Use");
+    ng.ng_TextAttr = gui->screen->Font;
+    ng.ng_GadgetID = GID_DISCOVERY_USE;
+    ng.ng_Flags = PLACETEXT_IN;
+    ng.ng_VisualInfo = gui->visual_info;
+    tags[0].ti_Tag = TAG_END;
+    tags[0].ti_Data = 0UL;
+    previous = CreateGadgetA(BUTTON_KIND, previous, &ng, tags);
+    if (previous == NULL) {
+        FreeGadgets(glist);
+        return 0;
+    }
+
+    ng.ng_LeftEdge = (WORD)(width / 2U + 15U);
+    ng.ng_GadgetText = (UBYTE *)AP_TR(MSG_BUTTON_DISCOVERY_CANCEL_CLASSIC, "Cancel");
+    ng.ng_GadgetID = GID_DISCOVERY_CANCEL;
+    previous = CreateGadgetA(BUTTON_KIND, previous, &ng, tags);
+    if (previous == NULL) {
+        FreeGadgets(glist);
+        return 0;
+    }
+
+    left = ((LONG)screen_width - (LONG)width) / 2L;
+    top = ((LONG)screen_height - (LONG)height) / 2L;
+    window_tags[0].ti_Tag = WA_Left;
+    window_tags[0].ti_Data = (ULONG)left;
+    window_tags[1].ti_Tag = WA_Top;
+    window_tags[1].ti_Data = (ULONG)top;
+    window_tags[2].ti_Tag = WA_Width;
+    window_tags[2].ti_Data = width;
+    window_tags[3].ti_Tag = WA_Height;
+    window_tags[3].ti_Data = height;
+    window_tags[4].ti_Tag = WA_Title;
+    window_tags[4].ti_Data = (ULONG)AP_TR(MSG_DISCOVERY_WINDOW_TITLE, "Select printer");
+    window_tags[5].ti_Tag = WA_Gadgets;
+    window_tags[5].ti_Data = (ULONG)glist;
+    window_tags[6].ti_Tag = WA_IDCMP;
+    window_tags[6].ti_Data = IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_REFRESHWINDOW;
+    window_tags[7].ti_Tag = WA_Flags;
+    window_tags[7].ti_Data = WFLG_ACTIVATE | WFLG_CLOSEGADGET | WFLG_DEPTHGADGET |
+                             WFLG_DRAGBAR | WFLG_SMART_REFRESH;
+    window_tags[8].ti_Tag = WA_PubScreen;
+    window_tags[8].ti_Data = (ULONG)gui->screen;
+    window_tags[9].ti_Tag = WA_AutoAdjust;
+    window_tags[9].ti_Data = TRUE;
+    window_tags[10].ti_Tag = TAG_END;
+    window_tags[10].ti_Data = 0UL;
+    window = OpenWindowTagList(NULL, window_tags);
+    if (window == NULL) {
+        FreeGadgets(glist);
+        return 0;
+    }
+
+    GT_RefreshWindow(window, NULL);
+    active = 0UL;
+    done = 0;
+    accepted = 0;
+    while (!done) {
+        ULONG signal_mask;
+        ULONG received;
+        struct IntuiMessage *message;
+
+        signal_mask = 1UL << window->UserPort->mp_SigBit;
+        received = Wait(signal_mask | SIGBREAKF_CTRL_C);
+        if ((received & SIGBREAKF_CTRL_C) != 0U) break;
+
+        while ((message = GT_GetIMsg(window->UserPort)) != NULL) {
+            ULONG msg_class;
+            struct Gadget *gadget;
+            UWORD id;
+            UWORD msg_code;
+
+            msg_class = message->Class;
+            msg_code = message->Code;
+            gadget = msg_class == IDCMP_GADGETUP
+                ? (struct Gadget *)message->IAddress : NULL;
+            id = gadget != NULL ? gadget->GadgetID : 0U;
+
+            if (msg_class == IDCMP_REFRESHWINDOW) {
+                GT_BeginRefresh(window);
+                GT_EndRefresh(window, TRUE);
+                GT_ReplyIMsg(message);
+                continue;
+            }
+            GT_ReplyIMsg(message);
+
+            if (msg_class == IDCMP_CLOSEWINDOW) {
+                done = 1;
+            } else if (msg_class == IDCMP_GADGETUP) {
+                if (id == GID_DISCOVERY_LIST) {
+                    /* GadTools returns the selected list ordinal in Code.
+                     * Mirror it back into GTLV_Selected so the highlight
+                     * stays visibly attached to the active row. */
+                    if ((ULONG)msg_code < gui->discovery.count) {
+                        struct TagItem select_tags[2];
+                        active = (ULONG)msg_code;
+                        select_tags[0].ti_Tag = GTLV_Selected;
+                        select_tags[0].ti_Data = active;
+                        select_tags[1].ti_Tag = TAG_END;
+                        select_tags[1].ti_Data = 0UL;
+                        GT_SetGadgetAttrsA(gadget, window, NULL, select_tags);
+                    }
+                } else if (id == GID_DISCOVERY_USE) {
+                    if (active < gui->discovery.count) {
+                        *selected_index = (unsigned int)active;
+                        accepted = 1;
+                    }
+                    done = 1;
+                } else if (id == GID_DISCOVERY_CANCEL) {
+                    done = 1;
+                }
+            }
+        }
+    }
+
+    (void)RemoveGList(window, glist, -1L);
+    FreeGadgets(glist);
+    CloseWindow(window);
+    return accepted;
+}
+
+static void ap_gui_apply_discovered(struct APGUI *gui,
+                                    const struct APDiscoveredPrinter *printer)
+{
+    struct TagItem tags[2];
+
+    if (gui == NULL || printer == NULL || gui->window == NULL) return;
+    snprintf(gui->prefs.host, sizeof(gui->prefs.host), "%s", printer->address);
+    gui->prefs.port = (unsigned int)printer->port;
+    snprintf(gui->prefs.path, sizeof(gui->prefs.path), "%s", printer->path);
+
+    tags[0].ti_Tag = GTST_String;
+    tags[0].ti_Data = (ULONG)gui->prefs.host;
+    tags[1].ti_Tag = TAG_END;
+    tags[1].ti_Data = 0UL;
+    GT_SetGadgetAttrsA(gui->gadgets[GID_HOST], gui->window, NULL, tags);
+
+    tags[0].ti_Tag = GTIN_Number;
+    tags[0].ti_Data = gui->prefs.port;
+    GT_SetGadgetAttrsA(gui->gadgets[GID_PORT], gui->window, NULL, tags);
+
+    tags[0].ti_Tag = GTST_String;
+    tags[0].ti_Data = (ULONG)gui->prefs.path;
+    GT_SetGadgetAttrsA(gui->gadgets[GID_PATH], gui->window, NULL, tags);
+
+    ap_gui_invalidate_query(gui,
+        AP_TR(MSG_STATUS_PRINTER_SELECTED, "Printer selected - query printer"));
+}
+
+static int ap_gui_search(struct APGUI *gui)
+{
+    unsigned int selected;
+    char message[192];
+
+    if (gui == NULL) return 0;
+    ap_gui_set_status(gui,
+        AP_TR(MSG_STATUS_SEARCHING, "Searching network for IPP printers..."));
+
+    if (!ap_discovery_search(&gui->discovery)) {
+        snprintf(message, sizeof(message),
+                 AP_TR(MSG_FORMAT_SEARCH_FAILED, "Search failed: %s"),
+                 ap_discovery_last_error());
+        ap_gui_set_status(gui, message);
+        return 0;
+    }
+    if (gui->discovery.count == 0U) {
+        ap_gui_set_status(gui,
+            AP_TR(MSG_STATUS_SEARCH_NONE, "No IPP/AirPrint printers found"));
+        return 0;
+    }
+
+    selected = 0U;
+    if (!ap_gui_choose_discovered(gui, &selected)) {
+        snprintf(message, sizeof(message),
+                 AP_TR(MSG_FORMAT_SEARCH_FOUND, "%u printer(s) found"),
+                 gui->discovery.count);
+        ap_gui_set_status(gui, message);
+        return 0;
+    }
+    ap_gui_apply_discovered(gui, &gui->discovery.printers[selected]);
+    return 1;
+}
+
 static int ap_gui_read_address(struct APGUI *gui, char *host, size_t host_size,
                                char *path, size_t path_size, unsigned int *port)
 {
@@ -1314,6 +1651,9 @@ static int ap_gui_run(struct APGUI *gui)
                         break;
                     case GID_QUERY:
                         (void)ap_gui_query(gui);
+                        break;
+                    case GID_SEARCH:
+                        (void)ap_gui_search(gui);
                         break;
                     case GID_TESTPAGE:
                         (void)ap_gui_testpage(gui);

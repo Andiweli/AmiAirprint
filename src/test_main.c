@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define AIRPRINT_TEST_VERSION AMIAIRPRINT_VERSION_TEXT
+#define AIRPRINT_TEST_VERSION AMIAIRPRINT_CORE_VERSION_TEXT
 
 static struct APPrefs g_test_prefs;
 static struct APPrinterCapabilities g_test_caps;

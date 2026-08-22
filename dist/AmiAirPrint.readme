@@ -2,7 +2,7 @@ Short:        AirPrint/IPP printer driver for Amiga
 Uploader:     Andreas "Andiweli" Stuermer
 Author:       Andreas "Andiweli" Stuermer
 Type:         driver/print
-Version:      1.0
+Version:      1.1
 Architecture: m68k-amigaos >= 3.0.0
 
 AmiAirPrint is a native AirPrint/IPP printer solution for classic AmigaOS.
@@ -23,10 +23,18 @@ Main features:
 - ReAction.prefs-aware spacing in the ReAction preferences GUI
 - locale.library/catalog support with built-in English fallback
 - AmiAirPrint.cd included for third-party translations
+- automatic local AirPrint / IPP discovery via mDNS/DNS-SD
 - IPP capability query and test page
 - Installer 43.3 installation script
 
-Verified with version 1.0:
+Component versions:
+
+- package / preferences: 1.1
+- AirPrint printer driver: 43.40
+- airprint.device: 1.0
+- AirPrintPrinterTest: 1.0
+
+Verified printing core (unchanged from version 1.0):
 
 - Personal Paint color graphics printing
 - MultiView graphics printing
@@ -43,9 +51,8 @@ port in the normal AmigaOS Printer preferences. Parallel is only a required
 compatibility selection; AmiAirPrint sends its data directly through
 airprint.device.
 
-Known limitations in version 1.0:
+Known limitations in version 1.1:
 
-- numeric IPv4 printer address only; no automatic printer discovery
 - IBrowse's printer path is text-only and may print image ALT placeholders
 - PRD_RAWWRITE is not treated as portable text output
 

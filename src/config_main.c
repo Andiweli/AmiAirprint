@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define AP_CONFIG_VERSION AMIAIRPRINT_VERSION_TEXT
+#define AP_CONFIG_VERSION AMIAIRPRINT_CORE_VERSION_TEXT
 
 static struct APPrefs g_config_prefs;
 static struct APPrinterCapabilities g_config_caps;

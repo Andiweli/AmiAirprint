@@ -1,4 +1,4 @@
-AmiAirPrint 1.0
+AmiAirPrint 1.1
 ================
 
 Native AirPrint / IPP printing for classic AmigaOS 3.0 and newer.
@@ -13,7 +13,7 @@ Requirements
 - AmigaOS 3.0 or newer
 - Motorola 68000 or newer
 - TCP/IP stack providing bsdsocket.library
-- IPP/AirPrint-capable printer reachable by numeric IPv4 address
+- IPP/AirPrint-capable printer reachable by IPv4
 
 Installation
 ------------
@@ -26,8 +26,9 @@ Installation
    Printer: AirPrint
    Port:    Parallel
 
-5. Open SYS:Prefs/AmiAirPrint, enter the printer IPv4 address, query the
-   printer, choose the desired options and save.
+5. Open SYS:Prefs/AmiAirPrint, use Search... to discover a local printer (or
+   enter its IPv4 address manually), query it, choose the desired options and
+   save.
 
 Parallel is only a compatibility selection required by classic printer.device.
 AmiAirPrint sends the actual print data directly through airprint.device.
@@ -55,9 +56,10 @@ Main features
 - IPP printer capability query
 - JPEG network test page
 - optional locale.library catalogs with built-in English fallback
+- local AirPrint / IPP printer discovery via mDNS/DNS-SD
 - ReAction.prefs-aware spacing on AmigaOS 3.2+
 
-Verified with AmiAirPrint 1.0:
+Verified printing core (unchanged from AmiAirPrint 1.0):
 
 - Personal Paint color graphics printing
 - MultiView graphics printing
@@ -65,22 +67,31 @@ Verified with AmiAirPrint 1.0:
 - built-in monochrome test page
 
 
+Component versions
+------------------
+
+Package / preferences: 1.1
+AirPrint printer driver: 43.40
+airprint.device: 1.0
+AirPrintPrinterTest: 1.0
+
 Localization
 ------------
 
 English is built into both preferences programs. If an AmiAirPrint.catalog is
 available for the selected system language, locale.library loads it
-automatically. Locale/AmiAirPrint.cd is supplied for translators who want to
-build additional catalogs with CatComp, FlexCat or compatible tools.
+automatically. Locale/AmiAirPrint.cd and the maintained German translation source are
+supplied for CatComp, FlexCat or compatible tools.
 
 Known limitations
 -----------------
 
-- Numeric IPv4 printer address only; no DNS/mDNS discovery in version 1.0.
+- Discovery is limited to local IPv4 IPP/AirPrint DNS-SD services; manual
+  IPv4 configuration remains available.
 - IBrowse's classic printer path is text-only and may emit image ALT
   placeholders itself.
 - PRD_RAWWRITE is not treated as portable text output.
-- Duplex selection is not exposed in the version 1.0 preferences UI.
+- Duplex selection is not exposed in the version 1.1 preferences UI.
 
 License
 -------

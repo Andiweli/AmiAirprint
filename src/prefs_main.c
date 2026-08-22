@@ -1,4 +1,5 @@
 #include "airprint_caps.h"
+#include "airprint_discovery.h"
 #include "ami_airprint_brand.h"
 #include "airprint_http.h"
 #include "airprint_prefs.h"
@@ -21,6 +22,7 @@
 #include <gadgets/button.h>
 #include <gadgets/string.h>
 #include <gadgets/integer.h>
+#include <gadgets/listbrowser.h>
 #include <gadgets/chooser.h>
 #include <gadgets/checkbox.h>
 #include <images/label.h>
@@ -32,6 +34,7 @@
 #include <proto/button.h>
 #include <proto/string.h>
 #include <proto/integer.h>
+#include <proto/listbrowser.h>
 #include <proto/chooser.h>
 #include <proto/checkbox.h>
 #include <proto/label.h>
@@ -39,12 +42,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#define AIRPRINT_PREFS_VERSION AMIAIRPRINT_VERSION_TEXT
+#define AIRPRINT_PREFS_VERSION AMIAIRPRINT_PREFS_VERSION_TEXT
 #define AP_GUI_MEDIA_LABEL_LEN 80
 
 const char AmiAirPrintBrand[] __attribute__((used)) = AMIAIRPRINT_BRAND_TEXT;
 const char AmiAirPrintVersionTag[] __attribute__((used)) =
-    "$VER: AmiAirPrintPrefs " AMIAIRPRINT_VERSION_TEXT " (" AMIAIRPRINT_VERSION_DATE ")\r\n" AMIAIRPRINT_BRAND_TEXT;
+    "$VER: AmiAirPrintPrefs " AMIAIRPRINT_PREFS_VERSION_TEXT " (" AMIAIRPRINT_PREFS_VERSION_DATE ")\r\n" AMIAIRPRINT_BRAND_TEXT;
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct Library *WindowBase = NULL;
@@ -52,6 +55,7 @@ struct Library *LayoutBase = NULL;
 struct Library *ButtonBase = NULL;
 struct Library *StringBase = NULL;
 struct Library *IntegerBase = NULL;
+struct Library *ListBrowserBase = NULL;
 struct Library *ChooserBase = NULL;
 struct Library *CheckBoxBase = NULL;
 struct Library *LabelBase = NULL;
@@ -61,6 +65,7 @@ enum {
     GID_PORT,
     GID_PATH,
     GID_QUERY,
+    GID_SEARCH,
     GID_MODEL,
     GID_STATUS,
     GID_AIRPRINT,
@@ -107,6 +112,10 @@ struct APGUI {
     const char *media_keys[AP_CAPS_MAX_MEDIA];
     unsigned int media_count;
     int queried;
+
+    struct APDiscoveryResult discovery;
+    STRPTR discovery_labels[AP_DISCOVERY_MAX_PRINTERS + 1U];
+    char discovery_label_storage[AP_DISCOVERY_MAX_PRINTERS][AP_DISCOVERY_NAME_LEN + 48U];
 };
 
 /* Singleton GUI state lives in BSS, not on the process stack. */
@@ -157,6 +166,7 @@ static int ap_gui_open_classes(void)
     ButtonBase = OpenLibrary((CONST_STRPTR)"gadgets/button.gadget", 44L);
     StringBase = OpenLibrary((CONST_STRPTR)"gadgets/string.gadget", 44L);
     IntegerBase = OpenLibrary((CONST_STRPTR)"gadgets/integer.gadget", 44L);
+    ListBrowserBase = OpenLibrary((CONST_STRPTR)"gadgets/listbrowser.gadget", 45L);
     ChooserBase = OpenLibrary((CONST_STRPTR)"gadgets/chooser.gadget", 45L);
     CheckBoxBase = OpenLibrary((CONST_STRPTR)"gadgets/checkbox.gadget", 44L);
     LabelBase = OpenLibrary((CONST_STRPTR)"images/label.image", 44L);
@@ -166,6 +176,7 @@ static int ap_gui_open_classes(void)
            ButtonBase != NULL &&
            StringBase != NULL &&
            IntegerBase != NULL &&
+           ListBrowserBase != NULL &&
            ChooserBase != NULL &&
            CheckBoxBase != NULL &&
            LabelBase != NULL;
@@ -176,6 +187,7 @@ static void ap_gui_close_classes(void)
     if (LabelBase != NULL) CloseLibrary(LabelBase);
     if (CheckBoxBase != NULL) CloseLibrary(CheckBoxBase);
     if (ChooserBase != NULL) CloseLibrary(ChooserBase);
+    if (ListBrowserBase != NULL) CloseLibrary(ListBrowserBase);
     if (IntegerBase != NULL) CloseLibrary(IntegerBase);
     if (StringBase != NULL) CloseLibrary(StringBase);
     if (ButtonBase != NULL) CloseLibrary(ButtonBase);
@@ -186,6 +198,7 @@ static void ap_gui_close_classes(void)
     LabelBase = NULL;
     CheckBoxBase = NULL;
     ChooserBase = NULL;
+    ListBrowserBase = NULL;
     IntegerBase = NULL;
     StringBase = NULL;
     ButtonBase = NULL;
@@ -262,6 +275,16 @@ static Object *ap_gui_build_window(struct APGUI *gui)
                     CHILD_NominalSize, TRUE,
                 LayoutEnd,
                 CHILD_WeightedWidth, 0,
+
+                LAYOUT_AddChild, gui->gadgets[GID_QUERY] = ButtonObject,
+                    GA_ID, GID_QUERY,
+                    GA_RelVerify, TRUE,
+                    GA_TabCycle, TRUE,
+                    GA_Text, AP_TR(MSG_BUTTON_QUERY_REACTION, "_Query printer"),
+                    BUTTON_TextPadding, TRUE,
+                ButtonEnd,
+                CHILD_NominalSize, TRUE,
+                CHILD_WeightedWidth, 0,
             LayoutEnd,
             CHILD_Label, LabelObject,
                 LABEL_Text, AP_TR(MSG_LABEL_PRINTER_IP, "Printer IP"),
@@ -281,11 +304,11 @@ static Object *ap_gui_build_window(struct APGUI *gui)
                 StringEnd,
                 CHILD_NominalSize, TRUE,
 
-                LAYOUT_AddChild, gui->gadgets[GID_QUERY] = ButtonObject,
-                    GA_ID, GID_QUERY,
+                LAYOUT_AddChild, gui->gadgets[GID_SEARCH] = ButtonObject,
+                    GA_ID, GID_SEARCH,
                     GA_RelVerify, TRUE,
                     GA_TabCycle, TRUE,
-                    GA_Text, AP_TR(MSG_BUTTON_QUERY_REACTION, "_Query printer"),
+                    GA_Text, AP_TR(MSG_BUTTON_SEARCH_REACTION, "_Search..."),
                     BUTTON_TextPadding, TRUE,
                 ButtonEnd,
                 CHILD_NominalSize, TRUE,
@@ -712,6 +735,286 @@ static void ap_gui_update_capabilities(struct APGUI *gui)
                    TAG_END);
 }
 
+static void ap_gui_prepare_discovery_labels(struct APGUI *gui)
+{
+    unsigned int i;
+
+    if (gui == NULL) return;
+    for (i = 0U; i < gui->discovery.count && i < AP_DISCOVERY_MAX_PRINTERS; ++i) {
+        const struct APDiscoveredPrinter *printer;
+        printer = &gui->discovery.printers[i];
+        snprintf(gui->discovery_label_storage[i],
+                 sizeof(gui->discovery_label_storage[i]),
+                 "%s  (%s:%u)",
+                 printer->name[0] != '\0' ? printer->name : printer->host_name,
+                 printer->address,
+                 (unsigned int)printer->port);
+        gui->discovery_labels[i] = gui->discovery_label_storage[i];
+    }
+    gui->discovery_labels[i] = NULL;
+}
+
+static ULONG ap_gui_discovery_text_width(const struct APGUI *gui, const char *text)
+{
+    struct IntuiText itext;
+    LONG width;
+
+    if (gui == NULL || gui->window == NULL || gui->window->WScreen == NULL ||
+        gui->window->WScreen->Font == NULL || text == NULL || text[0] == '\0')
+        return 0UL;
+
+    memset(&itext, 0, sizeof(itext));
+    itext.ITextFont = gui->window->WScreen->Font;
+    itext.IText = (UBYTE *)text;
+    width = IntuiTextLength(&itext);
+    return width > 0L ? (ULONG)width : 0UL;
+}
+
+static int ap_gui_choose_discovered(struct APGUI *gui, unsigned int *selected_index)
+{
+    enum {
+        GID_DISCOVERY_LIST = 1001,
+        GID_DISCOVERY_USE,
+        GID_DISCOVERY_CANCEL
+    };
+    Object *window_object;
+    Object *listbrowser;
+    struct Window *window;
+    struct List printer_list;
+    ULONG window_signal;
+    ULONG chooser_width;
+    ULONG longest_entry_width;
+    ULONG screen_width;
+    unsigned int i;
+    int done;
+    int accepted;
+
+    if (gui == NULL || selected_index == NULL || gui->discovery.count == 0U)
+        return 0;
+
+    ap_gui_prepare_discovery_labels(gui);
+
+    /* Size the requester from the longest visible printer entry instead of
+     * from the main-window width.  The reserve covers the left "Printer"
+     * label, listbrowser borders/scrollbar and the window's inner spacing. */
+    longest_entry_width = 0UL;
+    for (i = 0U; i < gui->discovery.count && i < AP_DISCOVERY_MAX_PRINTERS; ++i) {
+        ULONG entry_width;
+        entry_width = ap_gui_discovery_text_width(gui, gui->discovery_labels[i]);
+        if (entry_width > longest_entry_width) longest_entry_width = entry_width;
+    }
+
+    chooser_width = longest_entry_width + 120UL;
+    if (chooser_width < 300UL) chooser_width = 300UL;
+
+    screen_width = 0UL;
+    if (gui->window != NULL && gui->window->WScreen != NULL)
+        screen_width = (ULONG)gui->window->WScreen->Width;
+    if (screen_width != 0UL) {
+        ULONG screen_limit;
+        screen_limit = screen_width > 40UL ? screen_width - 20UL : screen_width;
+        if (chooser_width > screen_limit) chooser_width = screen_limit;
+    }
+
+    printer_list.lh_Head = (struct Node *)&printer_list.lh_Tail;
+    printer_list.lh_Tail = NULL;
+    printer_list.lh_TailPred = (struct Node *)&printer_list.lh_Head;
+
+    for (i = 0U; i < gui->discovery.count && i < AP_DISCOVERY_MAX_PRINTERS; ++i) {
+        struct TagItem node_tags[4];
+        struct Node *node;
+
+        node_tags[0].ti_Tag = LBNA_Column;
+        node_tags[0].ti_Data = 0UL;
+        node_tags[1].ti_Tag = LBNCA_Text;
+        node_tags[1].ti_Data = (ULONG)gui->discovery_labels[i];
+        node_tags[2].ti_Tag = LBNCA_CopyText;
+        node_tags[2].ti_Data = TRUE;
+        node_tags[3].ti_Tag = TAG_END;
+        node_tags[3].ti_Data = 0UL;
+
+        node = AllocListBrowserNodeA(1U, node_tags);
+        if (node == NULL) {
+            FreeListBrowserList(&printer_list);
+            return 0;
+        }
+        node->ln_Pri = (BYTE)i;
+        AddTail(&printer_list, node);
+    }
+
+    listbrowser = NULL;
+    window_object = WindowObject,
+        WA_Title, AP_TR(MSG_DISCOVERY_WINDOW_TITLE, "Select printer"),
+        WA_Activate, TRUE,
+        WA_CloseGadget, TRUE,
+        WA_DepthGadget, TRUE,
+        WA_DragBar, TRUE,
+        WA_SizeGadget, TRUE,
+        WA_AutoAdjust, TRUE,
+        WA_Width, chooser_width,
+        WINDOW_Position, WPOS_CENTERSCREEN,
+        WA_IDCMP, IDCMP_CLOSEWINDOW | IDCMP_GADGETUP,
+
+        WINDOW_ParentGroup, VLayoutObject,
+            LAYOUT_SpaceOuter, TRUE,
+            LAYOUT_SpaceInner, TRUE,
+
+            LAYOUT_AddChild, listbrowser = ListBrowserObject,
+                GA_ID, GID_DISCOVERY_LIST,
+                GA_RelVerify, TRUE,
+                GA_TabCycle, TRUE,
+                GA_ReadOnly, FALSE,
+                LISTBROWSER_Labels, &printer_list,
+                LISTBROWSER_Selected, 0,
+                LISTBROWSER_ShowSelected, TRUE,
+                LISTBROWSER_MinVisible, 4,
+            ListBrowserEnd,
+            CHILD_Label, LabelObject,
+                LABEL_Text, AP_TR(MSG_LABEL_PRINTER, "Printer"),
+            LabelEnd,
+
+            LAYOUT_AddChild, HLayoutObject,
+                LAYOUT_SpaceInner, TRUE,
+                LAYOUT_AddChild, ButtonObject,
+                    GA_ID, GID_DISCOVERY_USE,
+                    GA_RelVerify, TRUE,
+                    GA_Text, AP_TR(MSG_BUTTON_DISCOVERY_USE_REACTION, "_Use"),
+                    BUTTON_TextPadding, TRUE,
+                ButtonEnd,
+                LAYOUT_AddChild, ButtonObject,
+                    GA_ID, GID_DISCOVERY_CANCEL,
+                    GA_RelVerify, TRUE,
+                    GA_Text, AP_TR(MSG_BUTTON_DISCOVERY_CANCEL_REACTION, "_Cancel"),
+                    BUTTON_TextPadding, TRUE,
+                ButtonEnd,
+            LayoutEnd,
+            CHILD_WeightedHeight, 0,
+        LayoutEnd,
+    WindowEnd;
+
+    if (window_object == NULL) {
+        FreeListBrowserList(&printer_list);
+        return 0;
+    }
+
+    window = RA_OpenWindow(window_object);
+    if (window == NULL) {
+        SetAttrs(listbrowser, LISTBROWSER_Labels, ~0UL, TAG_END);
+        DisposeObject(window_object);
+        FreeListBrowserList(&printer_list);
+        return 0;
+    }
+
+    window_signal = 0U;
+    GetAttr(WINDOW_SigMask, window_object, &window_signal);
+    done = 0;
+    accepted = 0;
+    while (!done) {
+        ULONG received;
+        ULONG result;
+        UWORD code;
+
+        received = Wait(window_signal | SIGBREAKF_CTRL_C);
+        if ((received & SIGBREAKF_CTRL_C) != 0U) break;
+
+        while ((result = RA_HandleInput(window_object, &code)) != WMHI_LASTMSG) {
+            switch (result & WMHI_CLASSMASK) {
+                case WMHI_CLOSEWINDOW:
+                    done = 1;
+                    break;
+                case WMHI_GADGETUP:
+                    switch (result & WMHI_GADGETMASK) {
+                        case GID_DISCOVERY_LIST:
+                            /* LISTBROWSER_Selected is also returned in code. */
+                            (void)code;
+                            break;
+                        case GID_DISCOVERY_USE:
+                        {
+                            ULONG selected;
+                            selected = 0U;
+                            GetAttr(LISTBROWSER_Selected, listbrowser, &selected);
+                            if (selected < gui->discovery.count) {
+                                *selected_index = (unsigned int)selected;
+                                accepted = 1;
+                            }
+                            done = 1;
+                            break;
+                        }
+                        case GID_DISCOVERY_CANCEL:
+                            done = 1;
+                            break;
+                        default:
+                            break;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    RA_CloseWindow(window_object);
+    SetAttrs(listbrowser, LISTBROWSER_Labels, ~0UL, TAG_END);
+    DisposeObject(window_object);
+    FreeListBrowserList(&printer_list);
+    return accepted;
+}
+
+static void ap_gui_apply_discovered(struct APGUI *gui,
+                                    const struct APDiscoveredPrinter *printer)
+{
+    if (gui == NULL || printer == NULL) return;
+
+    snprintf(gui->prefs.host, sizeof(gui->prefs.host), "%s", printer->address);
+    gui->prefs.port = (unsigned int)printer->port;
+    snprintf(gui->prefs.path, sizeof(gui->prefs.path), "%s", printer->path);
+    gui->queried = 0;
+
+    SetGadgetAttrs((struct Gadget *)gui->gadgets[GID_HOST], gui->window, NULL,
+                   STRINGA_TextVal, gui->prefs.host, TAG_END);
+    SetGadgetAttrs((struct Gadget *)gui->gadgets[GID_PORT], gui->window, NULL,
+                   INTEGER_Number, gui->prefs.port, TAG_END);
+    SetGadgetAttrs((struct Gadget *)gui->gadgets[GID_PATH], gui->window, NULL,
+                   STRINGA_TextVal, gui->prefs.path, TAG_END);
+    ap_gui_set_status(gui,
+        AP_TR(MSG_STATUS_PRINTER_SELECTED, "Printer selected - query printer"));
+}
+
+static int ap_gui_search(struct APGUI *gui)
+{
+    unsigned int selected;
+    char message[192];
+
+    if (gui == NULL) return 0;
+    ap_gui_set_status(gui,
+        AP_TR(MSG_STATUS_SEARCHING, "Searching network for IPP printers..."));
+
+    if (!ap_discovery_search(&gui->discovery)) {
+        snprintf(message, sizeof(message),
+                 AP_TR(MSG_FORMAT_SEARCH_FAILED, "Search failed: %s"),
+                 ap_discovery_last_error());
+        ap_gui_set_status(gui, message);
+        return 0;
+    }
+    if (gui->discovery.count == 0U) {
+        ap_gui_set_status(gui,
+            AP_TR(MSG_STATUS_SEARCH_NONE, "No IPP/AirPrint printers found"));
+        return 0;
+    }
+
+    selected = 0U;
+    if (!ap_gui_choose_discovered(gui, &selected)) {
+        snprintf(message, sizeof(message),
+                 AP_TR(MSG_FORMAT_SEARCH_FOUND, "%u printer(s) found"),
+                 gui->discovery.count);
+        ap_gui_set_status(gui, message);
+        return 0;
+    }
+
+    ap_gui_apply_discovered(gui, &gui->discovery.printers[selected]);
+    return 1;
+}
+
 static int ap_gui_read_address(struct APGUI *gui, char *host, size_t host_size,
                                char *path, size_t path_size, unsigned int *port)
 {
@@ -989,6 +1292,10 @@ static int ap_gui_run(struct APGUI *gui)
 
                         case GID_QUERY:
                             ap_gui_query(gui);
+                            break;
+
+                        case GID_SEARCH:
+                            (void)ap_gui_search(gui);
                             break;
 
                         case GID_TESTPAGE:

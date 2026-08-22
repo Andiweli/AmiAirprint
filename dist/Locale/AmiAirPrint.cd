@@ -5,9 +5,7 @@
 ; Existing numeric IDs are intentionally explicit and stable. Do not renumber.
 ; Translators: keep printf placeholders such as %s, %u and %lu unchanged.
 ; In ReAction button strings, the underscore marks the keyboard shortcut.
-# language english
-# version 1
-
+;
 MSG_WINDOW_TITLE (1//)
 AmiAirPrint Prefs
 MSG_WINDOW_TITLE_CLASSIC (2//)
@@ -174,3 +172,27 @@ MSG_MEDIA_PHOTO_L (82//)
 Photo L 3.5 x 5 in
 MSG_MEDIA_SQUARE_5X5 (83//)
 Square 5 x 5 in
+MSG_BUTTON_SEARCH_REACTION (84//)
+_Search...
+MSG_BUTTON_SEARCH_CLASSIC (85//)
+Search...
+MSG_STATUS_SEARCHING (86//)
+Searching network for IPP printers...
+MSG_FORMAT_SEARCH_FAILED (87//)
+Search failed: %s
+MSG_STATUS_SEARCH_NONE (88//)
+No IPP/AirPrint printers found
+MSG_DISCOVERY_WINDOW_TITLE (89//)
+Select printer
+MSG_BUTTON_DISCOVERY_USE_REACTION (90//)
+_Use
+MSG_BUTTON_DISCOVERY_USE_CLASSIC (91//)
+Use
+MSG_BUTTON_DISCOVERY_CANCEL_REACTION (92//)
+_Cancel
+MSG_BUTTON_DISCOVERY_CANCEL_CLASSIC (93//)
+Cancel
+MSG_STATUS_PRINTER_SELECTED (94//)
+Printer selected - query printer
+MSG_FORMAT_SEARCH_FOUND (95//)
+%u printer(s) found

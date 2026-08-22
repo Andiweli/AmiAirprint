@@ -37,6 +37,7 @@ PROBE_OBJECTS = \
 PREFS_OBJECTS = \
 	src/prefs_main.o \
 	src/ami_airprint_locale.o \
+	src/airprint_discovery.o \
 	src/airprint_print.o \
 	src/testpage_jpeg.o \
 	src/airprint_caps.o \
@@ -46,6 +47,7 @@ PREFS_OBJECTS = \
 PREFS_CLASSIC_OBJECTS = \
 	src/prefs_gadtools_main.o \
 	src/ami_airprint_locale.o \
+	src/airprint_discovery.o \
 	src/airprint_print.o \
 	src/testpage_jpeg.o \
 	src/airprint_caps.o \
@@ -86,6 +88,7 @@ REQUIRED_FILES = \
 	include/airprint_http.h \
 	include/airprint_ipp.h \
 	include/airprint_caps.h \
+	include/airprint_discovery.h \
 	include/airprint_prefs.h \
 	include/airprint_print.h \
 	include/airprint_device.h \
@@ -95,6 +98,7 @@ REQUIRED_FILES = \
 	src/airprint_http_amiga.c \
 	src/airprint_ipp.c \
 	src/airprint_caps.c \
+	src/airprint_discovery.c \
 	src/airprint_prefs.c \
 	src/airprint_print.c \
 	src/airprint_device.c \
@@ -152,11 +156,14 @@ $(DEVICE_TEST_TARGET): $(DEVICE_TEST_OBJECTS)
 $(PRINTER_TEST_TARGET): $(PRINTER_TEST_OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(PRINTER_TEST_OBJECTS) $(RUNTIME)
 
-src/prefs_main.o: src/prefs_main.c include/ami_airprint_version.h include/ami_airprint_locale.h
+src/prefs_main.o: src/prefs_main.c include/ami_airprint_version.h include/ami_airprint_locale.h include/airprint_discovery.h
 	$(CC) $(CFLAGS) -Wno-pointer-sign -c -o $@ $< $(RUNTIME)
 
-src/prefs_gadtools_main.o: src/prefs_gadtools_main.c include/ami_airprint_version.h include/ami_airprint_locale.h
+src/prefs_gadtools_main.o: src/prefs_gadtools_main.c include/ami_airprint_version.h include/ami_airprint_locale.h include/airprint_discovery.h
 	$(CC) $(CFLAGS) -Wno-pointer-sign -c -o $@ $< $(RUNTIME)
+
+src/airprint_discovery.o: src/airprint_discovery.c include/airprint_discovery.h include/airprint_http.h
+	$(CC) $(CFLAGS) -c -o $@ $< $(RUNTIME)
 
 src/ami_airprint_locale.o: src/ami_airprint_locale.c include/ami_airprint_locale.h
 	$(CC) $(CFLAGS) -c -o $@ $< $(RUNTIME)

@@ -27,11 +27,11 @@
 #define STR_INNER(s) #s
 #define STR(s) STR_INNER(s)
 
-#define DEVICE_VERSION AMIAIRPRINT_VERSION_MAJOR
-#define DEVICE_REVISION AMIAIRPRINT_VERSION_MINOR
+#define DEVICE_VERSION AMIAIRPRINT_CORE_VERSION_MAJOR
+#define DEVICE_REVISION AMIAIRPRINT_CORE_VERSION_MINOR
 #define DEVICE_PRIORITY 0
-#define DEVICE_DATE "(" AMIAIRPRINT_VERSION_DATE_LONG ")"
-#define DEVICE_ID_STRING "$VER: airprint.device " AMIAIRPRINT_VERSION_TEXT " " DEVICE_DATE "\r\n" AMIAIRPRINT_BRAND_TEXT
+#define DEVICE_DATE "(" AMIAIRPRINT_CORE_VERSION_DATE_LONG ")"
+#define DEVICE_ID_STRING "$VER: airprint.device " AMIAIRPRINT_CORE_VERSION_TEXT " " DEVICE_DATE "\r\n" AMIAIRPRINT_BRAND_TEXT
 
 #define APD_PREFS_ENV    "ENV:AirPrint.prefs"
 #define APD_PREFS_ENVARC "ENVARC:AirPrint.prefs"
@@ -768,7 +768,7 @@ static int apd_submit_job(void)
          apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, ":") &&
          apd_append_ulong(workspace->http, (ULONG)sizeof(workspace->http), &http_len, workspace->prefs.port) &&
          apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len,
-                    "\r\nUser-Agent: airprint.device/" AMIAIRPRINT_VERSION_TEXT " AmigaOS\r\n"
+                    "\r\nUser-Agent: airprint.device/" AMIAIRPRINT_CORE_VERSION_TEXT " AmigaOS\r\n"
                     "Content-Type: application/ipp\r\n"
                     "Accept: application/ipp\r\nContent-Length: ") &&
          apd_append_ulong(workspace->http, (ULONG)sizeof(workspace->http), &http_len, ipp_len + g_job_size) &&
