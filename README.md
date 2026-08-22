@@ -165,4 +165,6 @@ AmiAirPrint is released under the MIT License. See `LICENSE`.
 
 The embedded 8x8 Latin-1 bitmap font is derived from Daniel Hepper's `font8x8` collection and is Public Domain. See `THIRD-PARTY.md`.
 
+[![Support via PayPal](https://img.shields.io/badge/Support%20via-PayPal-0070BA?logo=paypal&logoColor=white)](https://paypal.me/andiweli)
+
 Copyright (c) 2026 Andreas "Andiweli" Stuermer.
