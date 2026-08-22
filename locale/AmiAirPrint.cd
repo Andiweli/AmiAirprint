@@ -1,0 +1,174 @@
+; AmiAirPrint catalog description
+; Built-in language: English
+; Catalog version: 1
+;
+; Existing numeric IDs are intentionally explicit and stable. Do not renumber.
+; Translators: keep printf placeholders such as %s, %u and %lu unchanged.
+; In ReAction button strings, the underscore marks the keyboard shortcut.
+;
+MSG_WINDOW_TITLE (1//)
+AmiAirPrint Prefs
+MSG_WINDOW_TITLE_CLASSIC (2//)
+AmiAirPrint Prefs (Classic)
+MSG_NOT_QUERIED (3//)
+Not queried
+MSG_PORTRAIT (4//)
+Portrait
+MSG_LANDSCAPE (5//)
+Landscape
+MSG_COLOR (6//)
+Color
+MSG_MONOCHROME (7//)
+Monochrome
+MSG_AUTOMATIC (8//)
+Automatic
+MSG_AUTO_MONOCHROME (9//)
+Auto monochrome
+MSG_DRAFT (10//)
+Draft
+MSG_NORMAL (11//)
+Normal
+MSG_HIGH (12//)
+High
+MSG_LABEL_PRINTER_IP (13//)
+Printer IP
+MSG_LABEL_PORT (14//)
+Port
+MSG_BUTTON_QUERY_REACTION (15//)
+_Query printer
+MSG_BUTTON_QUERY_CLASSIC (16//)
+Query printer
+MSG_LABEL_IPP_PATH (17//)
+IPP path
+MSG_LABEL_PRINTER (18//)
+Printer
+MSG_LABEL_STATUS (19//)
+Status
+MSG_LABEL_PROTOCOL (20//)
+Protocol
+MSG_LABEL_RESOLUTION (21//)
+Resolution
+MSG_LABEL_DPI (22//)
+DPI
+MSG_LABEL_DUPLEX (23//)
+Duplex
+MSG_LABEL_INK (24//)
+Ink
+MSG_LABEL_COLOR_MODE (25//)
+Color mode
+MSG_LABEL_COLOR (26//)
+Color
+MSG_LABEL_QUALITY (27//)
+Quality
+MSG_LABEL_PAPER (28//)
+Paper
+MSG_LABEL_ORIENTATION (29//)
+Orientation
+MSG_LABEL_PAGE (30//)
+Page
+MSG_LABEL_SCALE_PERCENT (31//)
+Scale (%)
+MSG_LABEL_SCALE_PERCENT_CLASSIC (32//)
+Scale %
+MSG_CENTER_ON_PAPER (33//)
+Center on paper
+MSG_BUTTON_TESTPAGE_REACTION (34//)
+_Testpage
+MSG_BUTTON_SAVE_REACTION (35//)
+_Save
+MSG_BUTTON_CANCEL_REACTION (36//)
+_Cancel
+MSG_BUTTON_TESTPAGE_CLASSIC (37//)
+Testpage
+MSG_BUTTON_SAVE_CLASSIC (38//)
+Save
+MSG_BUTTON_CANCEL_CLASSIC (39//)
+Cancel
+MSG_UNKNOWN_PRINTER (40//)
+Unknown printer
+MSG_NOT_REPORTED (41//)
+Not reported
+MSG_SUPPORTED (42//)
+Supported
+MSG_NOT_SUPPORTED (43//)
+Not supported
+MSG_STATE_READY (44//)
+Ready
+MSG_STATE_PRINTING (45//)
+Printing
+MSG_STATE_STOPPED (46//)
+Stopped
+MSG_STATE_UNKNOWN (47//)
+Unknown
+MSG_SUFFIX_NOT_ACCEPTING (48//)
+ - not accepting jobs
+MSG_SUFFIX_CHECK_STATUS (49//)
+ - check printer status
+MSG_FORMAT_AIRPRINT_IPP (50//)
+AirPrint %s / IPP %u.%u
+MSG_FORMAT_IPP (51//)
+IPP %u.%u
+MSG_FORMAT_DPI (52//)
+%lux%lu dpi
+MSG_STATUS_ENTER_IPV4 (53//)
+Enter the printer IPv4 address first
+MSG_STATUS_IPP_PATH_SLASH (54//)
+IPP path must start with '/'
+MSG_STATUS_INVALID_PORT (55//)
+Invalid TCP port
+MSG_STATUS_QUERYING (56//)
+Querying printer...
+MSG_FORMAT_QUERY_FAILED (57//)
+Query failed: %s
+MSG_STATUS_ADDRESS_CHANGED (58//)
+Address changed - query printer again
+MSG_STATUS_QUERY_BEFORE_TEST (59//)
+Query the printer before printing a test page
+MSG_STATUS_PRINTING_TEST (60//)
+Printing test page...
+MSG_FORMAT_TEST_FAILED (61//)
+Test page failed: %s
+MSG_UNKNOWN_PRINT_ERROR (62//)
+Unknown print error
+MSG_FORMAT_TEST_SUCCESS_JOB (63//)
+Test page sent successfully - job %lu
+MSG_STATUS_TEST_SUCCESS (64//)
+Test page sent successfully
+MSG_STATUS_QUERY_BEFORE_SAVE (65//)
+Query the printer before saving settings
+MSG_STATUS_ENV_WRITE_FAILED (66//)
+Could not write ENV:AirPrint.prefs
+MSG_STATUS_ENVARC_WRITE_FAILED (67//)
+ENV updated, but ENVARC:AirPrint.prefs failed
+MSG_STATUS_INITIAL (68//)
+Enter printer IP and query the printer
+MSG_CONSOLE_REACTION_REQUIRED (69//)
+AmiAirPrintPrefs %s requires AmigaOS 3.2 ReAction classes.
+MSG_CONSOLE_BSDSOCKET_FAILED (70//)
+Could not open bsdsocket.library: %s
+MSG_CONSOLE_REACTION_WINDOW_FAILED (71//)
+Could not create ReAction window.
+MSG_CONSOLE_CLASSIC_REQUIRED (72//)
+AmiAirPrintPrefsClassic %s requires AmigaOS 3.0+ (V39 GadTools).
+MSG_CONSOLE_CLASSIC_WINDOW_FAILED (73//)
+Could not create the GadTools preferences window.
+MSG_TESTPAGE_JOB_NAME (74//)
+AmigaOS AirPrint Test Page
+MSG_MEDIA_A4 (75//)
+A4
+MSG_MEDIA_A5 (76//)
+A5
+MSG_MEDIA_B5_JIS (77//)
+B5 (JIS)
+MSG_MEDIA_LETTER (78//)
+Letter
+MSG_MEDIA_LEGAL (79//)
+Legal
+MSG_MEDIA_PHOTO_4X6 (80//)
+Photo 4 x 6 in
+MSG_MEDIA_PHOTO_5X7 (81//)
+Photo 5 x 7 in
+MSG_MEDIA_PHOTO_L (82//)
+Photo L 3.5 x 5 in
+MSG_MEDIA_SQUARE_5X5 (83//)
+Square 5 x 5 in

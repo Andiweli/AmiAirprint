@@ -1,0 +1,107 @@
+#ifndef AMI_AIRPRINT_LOCALE_H
+#define AMI_AIRPRINT_LOCALE_H
+
+#include <exec/types.h>
+
+/*
+ * Stable catalog message IDs for AmiAirPrint 1.x.
+ *
+ * Do not renumber existing IDs: third-party catalogs may depend on them.
+ * New strings must be appended with new IDs and added to locale/AmiAirPrint.cd.
+ */
+enum APMessageId {
+    MSG_WINDOW_TITLE = 1,
+    MSG_WINDOW_TITLE_CLASSIC = 2,
+    MSG_NOT_QUERIED = 3,
+    MSG_PORTRAIT = 4,
+    MSG_LANDSCAPE = 5,
+    MSG_COLOR = 6,
+    MSG_MONOCHROME = 7,
+    MSG_AUTOMATIC = 8,
+    MSG_AUTO_MONOCHROME = 9,
+    MSG_DRAFT = 10,
+    MSG_NORMAL = 11,
+    MSG_HIGH = 12,
+    MSG_LABEL_PRINTER_IP = 13,
+    MSG_LABEL_PORT = 14,
+    MSG_BUTTON_QUERY_REACTION = 15,
+    MSG_BUTTON_QUERY_CLASSIC = 16,
+    MSG_LABEL_IPP_PATH = 17,
+    MSG_LABEL_PRINTER = 18,
+    MSG_LABEL_STATUS = 19,
+    MSG_LABEL_PROTOCOL = 20,
+    MSG_LABEL_RESOLUTION = 21,
+    MSG_LABEL_DPI = 22,
+    MSG_LABEL_DUPLEX = 23,
+    MSG_LABEL_INK = 24,
+    MSG_LABEL_COLOR_MODE = 25,
+    MSG_LABEL_COLOR = 26,
+    MSG_LABEL_QUALITY = 27,
+    MSG_LABEL_PAPER = 28,
+    MSG_LABEL_ORIENTATION = 29,
+    MSG_LABEL_PAGE = 30,
+    MSG_LABEL_SCALE_PERCENT = 31,
+    MSG_LABEL_SCALE_PERCENT_CLASSIC = 32,
+    MSG_CENTER_ON_PAPER = 33,
+    MSG_BUTTON_TESTPAGE_REACTION = 34,
+    MSG_BUTTON_SAVE_REACTION = 35,
+    MSG_BUTTON_CANCEL_REACTION = 36,
+    MSG_BUTTON_TESTPAGE_CLASSIC = 37,
+    MSG_BUTTON_SAVE_CLASSIC = 38,
+    MSG_BUTTON_CANCEL_CLASSIC = 39,
+    MSG_UNKNOWN_PRINTER = 40,
+    MSG_NOT_REPORTED = 41,
+    MSG_SUPPORTED = 42,
+    MSG_NOT_SUPPORTED = 43,
+    MSG_STATE_READY = 44,
+    MSG_STATE_PRINTING = 45,
+    MSG_STATE_STOPPED = 46,
+    MSG_STATE_UNKNOWN = 47,
+    MSG_SUFFIX_NOT_ACCEPTING = 48,
+    MSG_SUFFIX_CHECK_STATUS = 49,
+    MSG_FORMAT_AIRPRINT_IPP = 50,
+    MSG_FORMAT_IPP = 51,
+    MSG_FORMAT_DPI = 52,
+    MSG_STATUS_ENTER_IPV4 = 53,
+    MSG_STATUS_IPP_PATH_SLASH = 54,
+    MSG_STATUS_INVALID_PORT = 55,
+    MSG_STATUS_QUERYING = 56,
+    MSG_FORMAT_QUERY_FAILED = 57,
+    MSG_STATUS_ADDRESS_CHANGED = 58,
+    MSG_STATUS_QUERY_BEFORE_TEST = 59,
+    MSG_STATUS_PRINTING_TEST = 60,
+    MSG_FORMAT_TEST_FAILED = 61,
+    MSG_UNKNOWN_PRINT_ERROR = 62,
+    MSG_FORMAT_TEST_SUCCESS_JOB = 63,
+    MSG_STATUS_TEST_SUCCESS = 64,
+    MSG_STATUS_QUERY_BEFORE_SAVE = 65,
+    MSG_STATUS_ENV_WRITE_FAILED = 66,
+    MSG_STATUS_ENVARC_WRITE_FAILED = 67,
+    MSG_STATUS_INITIAL = 68,
+    MSG_CONSOLE_REACTION_REQUIRED = 69,
+    MSG_CONSOLE_BSDSOCKET_FAILED = 70,
+    MSG_CONSOLE_REACTION_WINDOW_FAILED = 71,
+    MSG_CONSOLE_CLASSIC_REQUIRED = 72,
+    MSG_CONSOLE_CLASSIC_WINDOW_FAILED = 73,
+    MSG_TESTPAGE_JOB_NAME = 74,
+    MSG_MEDIA_A4 = 75,
+    MSG_MEDIA_A5 = 76,
+    MSG_MEDIA_B5_JIS = 77,
+    MSG_MEDIA_LETTER = 78,
+    MSG_MEDIA_LEGAL = 79,
+    MSG_MEDIA_PHOTO_4X6 = 80,
+    MSG_MEDIA_PHOTO_5X7 = 81,
+    MSG_MEDIA_PHOTO_L = 82,
+    MSG_MEDIA_SQUARE_5X5 = 83
+};
+
+void ap_locale_open(void);
+void ap_locale_close(void);
+const char *ap_locale_get(ULONG id, const char *fallback);
+const char *ap_locale_color_name(const char *key);
+const char *ap_locale_media_name(const char *keyword);
+const char *ap_locale_state_name(unsigned int printer_state);
+
+#define AP_TR(id, fallback) ap_locale_get((ULONG)(id), (fallback))
+
+#endif

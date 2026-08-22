@@ -1,0 +1,53 @@
+Short:        AirPrint/IPP printer driver for Amiga
+Uploader:     Andreas "Andiweli" Stuermer
+Author:       Andreas "Andiweli" Stuermer
+Type:         driver/print
+Version:      1.0
+Architecture: m68k-amigaos >= 3.0.0
+
+AmiAirPrint is a native AirPrint/IPP printer solution for classic AmigaOS.
+It integrates with the standard printer.device system and prints directly to
+IPP/AirPrint network printers without a PC print server or CUPS.
+
+Main features:
+
+- AmigaOS 3.0+ and Motorola 68000 compatible
+- PWG Raster graphics printing through printer.device
+- processed PRT:/CMD_WRITE text printing with Latin-1 support
+- color and monochrome output
+- Portrait and Landscape
+- paper/media, quality and color-mode selection
+- 10-100% graphics scaling and optional centering
+- GadTools preferences program for AmigaOS 3.0/3.1
+- ReAction preferences program for AmigaOS 3.2+
+- ReAction.prefs-aware spacing in the ReAction preferences GUI
+- locale.library/catalog support with built-in English fallback
+- AmiAirPrint.cd included for third-party translations
+- IPP capability query and test page
+- Installer 43.3 installation script
+
+Verified with version 1.0:
+
+- Personal Paint color graphics printing
+- MultiView graphics printing
+- IBrowse text-only printing
+- built-in monochrome test page
+
+Requirements:
+
+- a TCP/IP stack providing bsdsocket.library
+- an IPP/AirPrint-capable network printer reachable by IPv4 address
+
+After installation, select AirPrint as the printer driver and Parallel as the
+port in the normal AmigaOS Printer preferences. Parallel is only a required
+compatibility selection; AmiAirPrint sends its data directly through
+airprint.device.
+
+Known limitations in version 1.0:
+
+- numeric IPv4 printer address only; no automatic printer discovery
+- IBrowse's printer path is text-only and may print image ALT placeholders
+- PRD_RAWWRITE is not treated as portable text output
+
+AmiAirPrint is released under the MIT License.
+The embedded font8x8 Latin-1 bitmap data is Public Domain.

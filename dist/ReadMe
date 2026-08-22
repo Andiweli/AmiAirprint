@@ -1,0 +1,92 @@
+AmiAirPrint 1.0
+================
+
+Native AirPrint / IPP printing for classic AmigaOS 3.0 and newer.
+
+AmiAirPrint integrates network printers with the standard AmigaOS
+printer.device system. It supports normal Amiga raster graphics and processed
+text without CUPS, a PC print server, or a printer-specific classic driver.
+
+Requirements
+------------
+
+- AmigaOS 3.0 or newer
+- Motorola 68000 or newer
+- TCP/IP stack providing bsdsocket.library
+- IPP/AirPrint-capable printer reachable by numeric IPv4 address
+
+Installation
+------------
+
+1. Start Install-AmiAirPrint with Installer 43.3.
+2. Select AmigaOS 3.0 / 3.1 or AmigaOS 3.2+.
+3. Restart the Amiga.
+4. In the normal Printer preferences select:
+
+   Printer: AirPrint
+   Port:    Parallel
+
+5. Open SYS:Prefs/AmiAirPrint, enter the printer IPv4 address, query the
+   printer, choose the desired options and save.
+
+Parallel is only a compatibility selection required by classic printer.device.
+AmiAirPrint sends the actual print data directly through airprint.device.
+
+Installed files
+---------------
+
+SYS:Prefs/AmiAirPrint
+SYS:Prefs/AmiAirPrint.info
+SYS:DEVS/airprint.device
+SYS:DEVS/Printers/AirPrint
+
+The Installer uses the GadTools preferences program on AmigaOS 3.0/3.1 and
+ReAction on AmigaOS 3.2+. Both versions use the same AirPrint.prefs settings.
+
+Main features
+-------------
+
+- PWG Raster graphics printing through printer.device
+- processed PRT:/CMD_WRITE text printing with Latin-1 support
+- color and monochrome printing
+- Portrait and Landscape
+- paper/media, quality and color-mode selection
+- 10-100% graphics scaling and optional centering
+- IPP printer capability query
+- JPEG network test page
+- optional locale.library catalogs with built-in English fallback
+- ReAction.prefs-aware spacing on AmigaOS 3.2+
+
+Verified with AmiAirPrint 1.0:
+
+- Personal Paint color graphics printing
+- MultiView graphics printing
+- IBrowse text-only printing
+- built-in monochrome test page
+
+
+Localization
+------------
+
+English is built into both preferences programs. If an AmiAirPrint.catalog is
+available for the selected system language, locale.library loads it
+automatically. Locale/AmiAirPrint.cd is supplied for translators who want to
+build additional catalogs with CatComp, FlexCat or compatible tools.
+
+Known limitations
+-----------------
+
+- Numeric IPv4 printer address only; no DNS/mDNS discovery in version 1.0.
+- IBrowse's classic printer path is text-only and may emit image ALT
+  placeholders itself.
+- PRD_RAWWRITE is not treated as portable text output.
+- Duplex selection is not exposed in the version 1.0 preferences UI.
+
+License
+-------
+
+AmiAirPrint is released under the MIT License. See LICENSE.
+
+The embedded font8x8 Latin-1 bitmap data is Public Domain. See THIRD-PARTY.
+
+Copyright (c) 2026 Andreas "Andiweli" Stuermer.
