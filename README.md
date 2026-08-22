@@ -2,7 +2,8 @@
 
 ![AmigaOS](https://img.shields.io/badge/AmigaOS-3.0%2B-orange)
 ![Printing](https://img.shields.io/badge/Printing-AirPrint%20%2F%20IPP-blue)
-![AI](https://img.shields.io/badge/Development-AI--assisted-6e7781)
+![AI](https://img.shields.io/badge/AI-assisted%20coding-6e7781)
+[![Support via PayPal](https://img.shields.io/badge/Support%20via-PayPal-0070BA?logo=paypal&logoColor=white)](https://paypal.me/andiweli)
 
 **Native AirPrint / IPP printing for classic AmigaOS 3.0 and newer.**
 
