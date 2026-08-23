@@ -4,18 +4,22 @@ on:
   push:
     branches:
       - feature/advanced-print-options-v1
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply-and-validate:
-    if: ${{ !contains(github.event.head_commit.message, '[advanced-patch-applied]') }}
+    if: github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[advanced-patch-applied]')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout patch branch
         uses: actions/checkout@v4
         with:
+          ref: feature/advanced-print-options-v1
           fetch-depth: 0
 
       - name: Expand patch payload
@@ -45,7 +49,7 @@ jobs:
           grep -q 'ap_advanced_requester' src/prefs_gadtools_main.c
           grep -q 'MSG_DRIVER_FALLBACK_600' include/ami_airprint_locale.h
           grep -q 'dc.w 41' src/printertag.s
-          grep -q 'AMIAIRPRINT_PACKAGE_VERSION_MINOR 2' include/ami_airprint_version.h
+          grep -q 'AMIAIRPRINT_VERSION_MINOR 2' include/ami_airprint_version.h
 
       - name: Host-test PDF and PostScript writer
         shell: bash
