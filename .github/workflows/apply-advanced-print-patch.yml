@@ -1,0 +1,145 @@
+name: Apply advanced print patch
+
+on:
+  push:
+    branches:
+      - feature/advanced-print-options-v1
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[advanced-patch-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout patch branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Expand patch payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf tools/advanced_patch_payload.tgz
+
+      - name: Apply source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/apply_advanced_patch.py
+          git add -N .
+          git diff --check
+
+      - name: Validate patch invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'APDEV_FORMAT_PDF' include/airprint_device.h
+          grep -q 'APDEV_FORMAT_POSTSCRIPT' include/airprint_device.h
+          grep -q 'media_source' include/airprint_prefs.h
+          grep -q 'duplex_long_edge_supported' include/airprint_caps.h
+          grep -q 'ap_discovery_search_mdns' src/airprint_discovery.c
+          grep -q 'ap_advanced_requester' src/prefs_main.c
+          grep -q 'ap_advanced_requester' src/prefs_gadtools_main.c
+          grep -q 'MSG_DRIVER_FALLBACK_600' include/ami_airprint_locale.h
+          grep -q 'dc.w 41' src/printertag.s
+          grep -q 'AMIAIRPRINT_PACKAGE_VERSION_MINOR 2' include/ami_airprint_version.h
+
+      - name: Host-test PDF and PostScript writer
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .patch-hosttest
+          mkdir -p .patch-hosttest/exec .patch-hosttest/devices
+          cat > .patch-hosttest/exec/types.h <<'EOF'
+          #ifndef EXEC_TYPES_H
+          #define EXEC_TYPES_H
+          typedef unsigned char UBYTE;
+          typedef unsigned short UWORD;
+          typedef unsigned long ULONG;
+          typedef long LONG;
+          #endif
+          EOF
+          cat > .patch-hosttest/devices/printer.h <<'EOF'
+          #ifndef DEVICES_PRINTER_H
+          #define DEVICES_PRINTER_H
+          #define PDERR_NOERR 0
+          #define PDERR_CANCEL 1
+          #define PDERR_BUFFERMEMORY 2
+          #endif
+          EOF
+          cat > .patch-hosttest/test.c <<'EOF'
+          #include "airprint_document.h"
+          #include <stdio.h>
+          #include <string.h>
+          static FILE *out;
+          static LONG sink(const void *data, ULONG length) {
+              return fwrite(data, 1, (size_t)length, out) == (size_t)length ? 0 : 1;
+          }
+          static int make_doc(const char *path, UWORD format) {
+              struct APDocumentWriter w;
+              unsigned char row[24];
+              unsigned char scratch[64];
+              unsigned long y;
+              memset(row, 255, sizeof(row));
+              out = fopen(path, "wb");
+              if (!out) return 1;
+              if (ap_document_begin(&w, format, 3, 8, 8, 595, 842, sink) != 0) return 2;
+              for (y = 0; y < 8; ++y) if (ap_document_write_row(&w, row, scratch, sizeof(scratch)) != 0) return 3;
+              if (ap_document_end(&w) != 0) return 4;
+              fclose(out);
+              return 0;
+          }
+          int main(void) {
+              if (make_doc(".patch-hosttest/test.pdf", AP_DOCUMENT_PDF)) return 10;
+              if (make_doc(".patch-hosttest/test.ps", AP_DOCUMENT_POSTSCRIPT)) return 11;
+              return 0;
+          }
+          EOF
+          gcc -std=c89 -Wall -Wextra -Werror -I.patch-hosttest -Iinclude \
+              .patch-hosttest/test.c src/airprint_document.c -o .patch-hosttest/test
+          .patch-hosttest/test
+          file .patch-hosttest/test.pdf | grep -q 'PDF document, version 1.3'
+          file .patch-hosttest/test.ps | grep -q 'PostScript document'
+
+      - name: Package complete changed source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .patch-output
+          mkdir -p .patch-output/files
+          git status --porcelain | sed -E 's/^.. //' | grep -v '^tools/' | grep -v '^\.github/workflows/apply-advanced-print-patch.yml$' | while IFS= read -r path; do
+            [ -f "$path" ] || continue
+            mkdir -p ".patch-output/files/$(dirname "$path")"
+            cp "$path" ".patch-output/files/$path"
+          done
+          (cd .patch-output/files && zip -qr ../AmiAirPrint-1.2-advanced-print-patch-complete-files.zip .)
+
+      - name: Upload complete-files ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmiAirPrint-1.2-advanced-print-patch-complete-files
+          path: .patch-output/AmiAirPrint-1.2-advanced-print-patch-complete-files.zip
+          if-no-files-found: error
+
+      - name: Commit validated patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .patch-hosttest .patch-output
+          rm -f tools/advanced_patch_payload.tgz \
+                tools/apply_advanced_patch.py \
+                tools/_airprint_document.h \
+                tools/_airprint_document.c \
+                tools/_airprint_discovery_ssdp.c \
+                tools/_airprint_advanced.h \
+                tools/_airprint_advanced.c
+          rm -f .github/workflows/apply-advanced-print-patch.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m '[advanced-patch-applied] AmiAirPrint 1.2 advanced printing'
+          git push origin HEAD:feature/advanced-print-options-v1
