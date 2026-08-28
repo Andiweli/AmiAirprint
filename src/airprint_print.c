@@ -109,6 +109,14 @@ int ap_print_document(
     uint32_t resolution_y;
     uint8_t resolution_units;
     unsigned int orientation_requested;
+    const char *job_sides;
+    const char *job_color_mode;
+    const char *job_media;
+    const char *job_media_source;
+    unsigned int job_quality;
+    unsigned int job_orientation;
+    int raster_resolution;
+    int compatibility_mode;
 
     if (prefs == NULL || document == NULL || document_len == 0U ||
         document_format == NULL || result == NULL) {
@@ -139,6 +147,7 @@ int ap_print_document(
     resolution_y = 0U;
     resolution_units = 3U;
     orientation_requested = 3U;
+    compatibility_mode = caps_valid && caps != NULL && caps->http_no_expect_required;
     if (strcmp(prefs->orientation, "landscape") == 0) {
         orientation_requested = 4U;
         if (caps_valid && caps != NULL &&
@@ -154,12 +163,51 @@ int ap_print_document(
             version_minor = caps->ipp_version_minor;
         }
 
-        if (caps->resolution_default.x != 0U && caps->resolution_default.y != 0U) {
+        if (prefs->resolution.x != 0U && prefs->resolution.y != 0U) {
+            resolution_x = prefs->resolution.x;
+            resolution_y = prefs->resolution.y;
+            resolution_units = prefs->resolution.units != 0U
+                ? prefs->resolution.units : 3U;
+        } else if (caps->resolution_default.x != 0U && caps->resolution_default.y != 0U) {
             resolution_x = caps->resolution_default.x;
             resolution_y = caps->resolution_default.y;
             resolution_units = caps->resolution_default.units != 0U
                 ? caps->resolution_default.units : 3U;
         }
+    }
+
+    job_sides = strcmp(document_format, "image/pwg-raster") == 0 ? prefs->sides : NULL;
+    job_color_mode = prefs->color_mode;
+    job_quality = prefs->quality;
+    job_media = prefs->media;
+    job_media_source = prefs->media_source;
+    job_orientation = orientation_requested;
+    raster_resolution = strcmp(document_format, "image/pwg-raster") == 0;
+    if (!raster_resolution) {
+        resolution_x = 0U;
+        resolution_y = 0U;
+    }
+
+    /*
+     * Firmware that already needed the no-Expect compatibility path for
+     * Get-Printer-Attributes has proven that its embedded HTTP/IPP stack is
+     * non-conforming.  For that printer, make the first Print-Job as small
+     * and conservative as possible instead of discovering quirks with a
+     * side-effecting operation.  IPP 1.1 plus only the operation attributes
+     * avoids known crashes on optional job-template attributes while the
+     * document itself still carries its PWG/PDF/PostScript page geometry.
+     */
+    if (compatibility_mode) {
+        version_major = 1U;
+        version_minor = 1U;
+        job_color_mode = NULL;
+        job_quality = 0U;
+        job_media = NULL;
+        job_media_source = NULL;
+        job_sides = NULL;
+        job_orientation = 0U;
+        resolution_x = 0U;
+        resolution_y = 0U;
     }
 
     if (!ap_ipp_build_print_job(
@@ -169,10 +217,12 @@ int ap_print_document(
             2U,
             job_name != NULL ? job_name : "AmigaOS AirPrint Job",
             document_format,
-            prefs->color_mode,
-            prefs->quality,
-            prefs->media,
-            orientation_requested,
+            job_color_mode,
+            job_quality,
+            job_media,
+            job_media_source,
+            job_sides,
+            job_orientation,
             resolution_x,
             resolution_y,
             resolution_units,
@@ -202,21 +252,96 @@ int ap_print_document(
     response_len = 0U;
     http_status = 0;
 
-    if (!ap_http_post_ipp(
-            prefs->host,
-            (uint16_t)prefs->port,
-            prefs->path,
-            http_body,
-            http_body_len,
-            &response,
-            &response_len,
-            &http_status)) {
+    if (compatibility_mode) {
+        if (!ap_http_post_ipp_no_expect(
+                prefs->host,
+                (uint16_t)prefs->port,
+                prefs->path,
+                http_body,
+                http_body_len,
+                &response,
+                &response_len,
+                &http_status)) {
+            free(http_body);
+            ap_print_set_error(error_text, error_text_size, ap_http_last_error());
+            return 0;
+        }
+    } else if (!ap_http_post_ipp(
+                   prefs->host,
+                   (uint16_t)prefs->port,
+                   prefs->path,
+                   http_body,
+                   http_body_len,
+                   &response,
+                   &response_len,
+                   &http_status)) {
         free(http_body);
         ap_print_set_error(error_text, error_text_size, ap_http_last_error());
         return 0;
     }
 
+    /*
+     * Some embedded printer HTTP servers reject Expect: 100-continue with
+     * 417 or 500.  A Print-Job may only be retried when the first request was
+     * rejected during HTTP preflight, before any IPP/document body bytes were
+     * sent.  This prevents duplicate print jobs if a printer returns a final
+     * error only after accepting the body.
+     */
+    if (!compatibility_mode &&
+        (http_status == 417 || http_status == 500) &&
+        !ap_http_last_request_body_sent()) {
+        ap_http_free(response);
+        response = NULL;
+        response_len = 0U;
+        http_status = 0;
+
+        if (!ap_http_post_ipp_no_expect(
+                prefs->host,
+                (uint16_t)prefs->port,
+                prefs->path,
+                http_body,
+                http_body_len,
+                &response,
+                &response_len,
+                &http_status)) {
+            free(http_body);
+            ap_print_set_error(error_text, error_text_size, ap_http_last_error());
+            return 0;
+        }
+    }
+
     free(http_body);
+
+    result->http_status = http_status;
+
+    /*
+     * Narrow compatibility rule for a broken embedded HTTP/IPP stack:
+     *
+     * - Get-Printer-Attributes previously had to fall back because this same
+     *   printer returned HTTP 500 to Expect: 100-continue.
+     * - The Print-Job is therefore already running in no-Expect/IPP 1.1
+     *   compatibility mode.
+     * - The complete IPP + document body was successfully transmitted.
+     * - Only then does the printer return HTTP 500 instead of a valid IPP
+     *   response.
+     *
+     * Hardware testing on the affected HP shows that the page is printed in
+     * exactly this state.  Never retry: the printer may already have committed
+     * the job.  Treat it as accepted for the caller while preserving HTTP 500
+     * in APPrintResult for diagnostics.
+     */
+    if (http_status == 500 &&
+        compatibility_mode &&
+        ap_http_last_request_body_complete() &&
+        caps != NULL &&
+        (caps->http_expect_reject_status == 500U ||
+         caps->http_postbody_500_ok)) {
+        result->ipp_status = 0xFFFFU;
+        result->postbody_http_500_accepted = 1;
+        ap_http_free(response);
+        if (error_text != NULL && error_text_size != 0U) error_text[0] = '\0';
+        return 1;
+    }
 
     if (http_status != 200) {
         char temp[96];

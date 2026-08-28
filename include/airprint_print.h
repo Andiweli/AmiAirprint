@@ -12,6 +12,8 @@
 
 struct APPrintResult {
     uint16_t ipp_status;
+    int http_status;
+    int postbody_http_500_accepted;
     uint32_t request_id;
     unsigned long job_id;
     unsigned long job_state;

@@ -28,9 +28,15 @@ void ap_prefs_defaults(struct APPrefs *prefs)
     memset(prefs, 0, sizeof(*prefs));
     prefs->port = 631U;
     ap_copy(prefs->path, sizeof(prefs->path), "/ipp/print");
+    ap_copy(prefs->engine, sizeof(prefs->engine), "pwg-raster");
     ap_copy(prefs->color_mode, sizeof(prefs->color_mode), "color");
     prefs->quality = 4U;
     ap_copy(prefs->media, sizeof(prefs->media), "iso_a4_210x297mm");
+    prefs->media_source[0] = '\0';
+    ap_copy(prefs->sides, sizeof(prefs->sides), "one-sided");
+    prefs->resolution.x = 0U;
+    prefs->resolution.y = 0U;
+    prefs->resolution.units = 3U;
     ap_copy(prefs->orientation, sizeof(prefs->orientation), "portrait");
     prefs->scale_percent = 100U;
     prefs->center_on_paper = 0;
@@ -124,10 +130,32 @@ static void ap_parse_caps_line(
         caps->color_supported = (int)ap_ulong(value, 0UL);
     } else if (strcmp(key, "CAP_DUPLEX_SUPPORTED") == 0) {
         caps->duplex_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_DUPLEX_LONG_EDGE") == 0) {
+        caps->duplex_long_edge_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_DUPLEX_SHORT_EDGE") == 0) {
+        caps->duplex_short_edge_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_SIDES_DEFAULT") == 0) {
+        ap_copy(caps->sides_default, sizeof(caps->sides_default), value);
+    } else if (strcmp(key, "CAP_FORMAT_PWG") == 0) {
+        caps->format_pwg_raster_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_FORMAT_PDF") == 0) {
+        caps->format_pdf_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_FORMAT_POSTSCRIPT") == 0) {
+        caps->format_postscript_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_FORMAT_JPEG") == 0) {
+        caps->format_jpeg_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_HTTP_NO_EXPECT") == 0) {
+        caps->http_no_expect_required = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_HTTP_EXPECT_REJECT_STATUS") == 0) {
+        caps->http_expect_reject_status = (unsigned int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_HTTP_POSTBODY_500_OK") == 0) {
+        caps->http_postbody_500_ok = (int)ap_ulong(value, 0UL);
     } else if (strcmp(key, "CAP_PWG_SRGB8_SUPPORTED") == 0) {
         caps->pwg_srgb8_supported = (int)ap_ulong(value, 0UL);
     } else if (strcmp(key, "CAP_PWG_SGRAY8_SUPPORTED") == 0) {
         caps->pwg_sgray8_supported = (int)ap_ulong(value, 0UL);
+    } else if (strcmp(key, "CAP_PWG_SHEET_BACK") == 0) {
+        ap_copy(caps->pwg_raster_sheet_back, sizeof(caps->pwg_raster_sheet_back), value);
     } else if (strcmp(key, "CAP_ORIENTATION_PORTRAIT") == 0) {
         caps->orientation_portrait_supported = (int)ap_ulong(value, 0UL);
     } else if (strcmp(key, "CAP_ORIENTATION_LANDSCAPE") == 0) {
@@ -204,6 +232,19 @@ static void ap_parse_caps_line(
         }
     } else if (strcmp(key, "CAP_MEDIA_DEFAULT") == 0) {
         ap_copy(caps->media_default, sizeof(caps->media_default), value);
+    } else if (strcmp(key, "CAP_MEDIA_SOURCE_COUNT") == 0) {
+        unsigned long count;
+        count = ap_ulong(value, 0UL);
+        if (count <= AP_CAPS_MAX_MEDIA_SOURCES)
+            caps->media_source_count = (unsigned int)count;
+    } else if (ap_parse_index(key, "CAP_MEDIA_SOURCE_", &index)) {
+        if (index < AP_CAPS_MAX_MEDIA_SOURCES) {
+            ap_copy(caps->media_sources[index], sizeof(caps->media_sources[index]), value);
+            if (caps->media_source_count <= index)
+                caps->media_source_count = index + 1U;
+        }
+    } else if (strcmp(key, "CAP_MEDIA_SOURCE_DEFAULT") == 0) {
+        ap_copy(caps->media_source_default, sizeof(caps->media_source_default), value);
     } else if (strcmp(key, "CAP_MARKER_NAME_COUNT") == 0) {
         unsigned long count;
         count = ap_ulong(value, 0UL);
@@ -276,6 +317,11 @@ static void ap_parse_line(
         }
     } else if (strcmp(key, "PATH") == 0) {
         ap_copy(prefs->path, sizeof(prefs->path), value);
+    } else if (strcmp(key, "ENGINE") == 0) {
+        if (strcmp(value, "pdf") == 0 || strcmp(value, "postscript") == 0)
+            ap_copy(prefs->engine, sizeof(prefs->engine), value);
+        else
+            ap_copy(prefs->engine, sizeof(prefs->engine), "pwg-raster");
     } else if (strcmp(key, "COLOR") == 0) {
         ap_copy(prefs->color_mode, sizeof(prefs->color_mode), value);
     } else if (strcmp(key, "QUALITY") == 0) {
@@ -286,6 +332,24 @@ static void ap_parse_line(
         }
     } else if (strcmp(key, "MEDIA") == 0) {
         ap_copy(prefs->media, sizeof(prefs->media), value);
+    } else if (strcmp(key, "MEDIA_SOURCE") == 0) {
+        ap_copy(prefs->media_source, sizeof(prefs->media_source), value);
+    } else if (strcmp(key, "SIDES") == 0) {
+        if (strcmp(value, "two-sided-long-edge") == 0 ||
+            strcmp(value, "two-sided-short-edge") == 0)
+            ap_copy(prefs->sides, sizeof(prefs->sides), value);
+        else
+            ap_copy(prefs->sides, sizeof(prefs->sides), "one-sided");
+    } else if (strcmp(key, "RESOLUTION") == 0) {
+        unsigned long x;
+        unsigned long y;
+        unsigned int units;
+        if (sscanf(value, "%lu,%lu,%u", &x, &y, &units) == 3 &&
+            x > 0UL && y > 0UL && x <= 65535UL && y <= 65535UL) {
+            prefs->resolution.x = (uint32_t)x;
+            prefs->resolution.y = (uint32_t)y;
+            prefs->resolution.units = (uint8_t)units;
+        }
     } else if (strcmp(key, "ORIENTATION") == 0) {
         if (strcmp(value, "landscape") == 0)
             ap_copy(prefs->orientation, sizeof(prefs->orientation), "landscape");
@@ -363,8 +427,19 @@ static int ap_write_caps(FILE *file, const struct APPrinterCapabilities *caps)
                 "CAP_ACCEPTING_JOBS=%d\n"
                 "CAP_COLOR_SUPPORTED=%d\n"
                 "CAP_DUPLEX_SUPPORTED=%d\n"
+                "CAP_DUPLEX_LONG_EDGE=%d\n"
+                "CAP_DUPLEX_SHORT_EDGE=%d\n"
+                "CAP_SIDES_DEFAULT=%s\n"
+                "CAP_FORMAT_PWG=%d\n"
+                "CAP_FORMAT_PDF=%d\n"
+                "CAP_FORMAT_POSTSCRIPT=%d\n"
+                "CAP_FORMAT_JPEG=%d\n"
+                "CAP_HTTP_NO_EXPECT=%d\n"
+                "CAP_HTTP_EXPECT_REJECT_STATUS=%u\n"
+                "CAP_HTTP_POSTBODY_500_OK=%d\n"
                 "CAP_PWG_SRGB8_SUPPORTED=%d\n"
                 "CAP_PWG_SGRAY8_SUPPORTED=%d\n"
+                "CAP_PWG_SHEET_BACK=%s\n"
                 "CAP_ORIENTATION_PORTRAIT=%d\n"
                 "CAP_ORIENTATION_LANDSCAPE=%d\n"
                 "CAP_ORIENTATION_REVERSE_LANDSCAPE=%d\n"
@@ -384,8 +459,19 @@ static int ap_write_caps(FILE *file, const struct APPrinterCapabilities *caps)
                 caps->accepting_jobs,
                 caps->color_supported,
                 caps->duplex_supported,
+                caps->duplex_long_edge_supported,
+                caps->duplex_short_edge_supported,
+                caps->sides_default,
+                caps->format_pwg_raster_supported,
+                caps->format_pdf_supported,
+                caps->format_postscript_supported,
+                caps->format_jpeg_supported,
+                caps->http_no_expect_required,
+                caps->http_expect_reject_status,
+                caps->http_postbody_500_ok,
                 caps->pwg_srgb8_supported,
                 caps->pwg_sgray8_supported,
+                caps->pwg_raster_sheet_back,
                 caps->orientation_portrait_supported,
                 caps->orientation_landscape_supported,
                 caps->orientation_reverse_landscape_supported,
@@ -442,6 +528,19 @@ static int ap_write_caps(FILE *file, const struct APPrinterCapabilities *caps)
     }
 
     if (fprintf(file,
+                "CAP_MEDIA_SOURCE_COUNT=%u\n"
+                "CAP_MEDIA_SOURCE_DEFAULT=%s\n",
+                caps->media_source_count,
+                caps->media_source_default) < 0) {
+        return 0;
+    }
+
+    for (i = 0U; i < caps->media_source_count && i < AP_CAPS_MAX_MEDIA_SOURCES; ++i) {
+        if (fprintf(file, "CAP_MEDIA_SOURCE_%u=%s\n", i, caps->media_sources[i]) < 0)
+            return 0;
+    }
+
+    if (fprintf(file,
                 "CAP_MARKER_NAME_COUNT=%u\n"
                 "CAP_MARKER_LEVEL_COUNT=%u\n",
                 caps->marker_name_count,
@@ -488,18 +587,28 @@ static int ap_write_file(
                  "HOST=%s\n"
                  "PORT=%u\n"
                  "PATH=%s\n"
+                 "ENGINE=%s\n"
                  "COLOR=%s\n"
                  "QUALITY=%u\n"
                  "MEDIA=%s\n"
+                 "MEDIA_SOURCE=%s\n"
+                 "SIDES=%s\n"
+                 "RESOLUTION=%lu,%lu,%u\n"
                  "ORIENTATION=%s\n"
                  "SCALE=%u\n"
                  "CENTER_ON_PAPER=%u\n",
                  prefs->host,
                  prefs->port,
                  prefs->path,
+                 prefs->engine,
                  prefs->color_mode,
                  prefs->quality,
                  prefs->media,
+                 prefs->media_source,
+                 prefs->sides,
+                 (unsigned long)prefs->resolution.x,
+                 (unsigned long)prefs->resolution.y,
+                 (unsigned int)prefs->resolution.units,
                  prefs->orientation,
                  prefs->scale_percent,
                  prefs->center_on_paper ? 1U : 0U) >= 0;

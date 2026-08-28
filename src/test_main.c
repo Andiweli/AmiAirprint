@@ -1,7 +1,7 @@
 #include "airprint_http.h"
 #include "airprint_prefs.h"
 #include "airprint_print.h"
-#include "testpage_jpeg.h"
+#include "airprint_testpage.h"
 #include "ami_airprint_version.h"
 
 #include <stdio.h>
@@ -43,8 +43,7 @@ int main(void)
     printf("Printer: %s\n",
            caps_valid && g_test_caps.model[0] != '\0' ? g_test_caps.model : "configured IPP printer");
     printf("Target:  ipp://%s:%u%s\n", g_test_prefs.host, g_test_prefs.port, g_test_prefs.path);
-    printf("Format:  image/jpeg (%lu bytes)\n",
-           (unsigned long)g_airprint_testpage_jpeg_len);
+    printf("Format:  %s\n", g_test_prefs.engine[0] != '\0' ? g_test_prefs.engine : "pwg-raster");
     printf("Color:   %s\n", g_test_prefs.color_mode[0] != '\0' ? g_test_prefs.color_mode : "printer default");
     printf("Quality: %s (%u)\n", ap_quality_name(g_test_prefs.quality), g_test_prefs.quality);
     printf("Paper:   %s\n", g_test_prefs.media[0] != '\0' ? g_test_prefs.media : "printer default");
@@ -63,24 +62,52 @@ int main(void)
     memset(&g_test_result, 0, sizeof(g_test_result));
     error_text[0] = '\0';
 
-    if (!ap_print_document(&g_test_prefs,
-                           &g_test_caps,
-                           caps_valid,
-                           g_airprint_testpage_jpeg,
-                           g_airprint_testpage_jpeg_len,
-                           "image/jpeg",
-                           "AmigaOS AirPrint Test Page",
-                           &g_test_result,
-                           error_text,
-                           sizeof(error_text))) {
-        printf("ERROR: %s\n", error_text[0] != '\0' ? error_text : "print failed");
-        ap_http_close();
-        return 20;
+    {
+        struct APTestPageDocument testpage;
+        int ok;
+
+        if (!ap_testpage_build(&g_test_prefs,
+                               &g_test_caps,
+                               caps_valid,
+                               &testpage,
+                               error_text,
+                               sizeof(error_text))) {
+            printf("ERROR: %s\n", error_text[0] != '\0' ? error_text : "test page generation failed");
+            ap_http_close();
+            return 20;
+        }
+
+        printf("Payload: %s (%lu bytes)\n",
+               testpage.format,
+               (unsigned long)testpage.length);
+
+        ok = ap_print_document(&g_test_prefs,
+                               &g_test_caps,
+                               caps_valid,
+                               testpage.data,
+                               testpage.length,
+                               testpage.format,
+                               "AmigaOS AirPrint Test Page",
+                               &g_test_result,
+                               error_text,
+                               sizeof(error_text));
+        ap_testpage_free(&testpage);
+
+        if (!ok) {
+            printf("ERROR: %s\n", error_text[0] != '\0' ? error_text : "print failed");
+            ap_http_close();
+            return 20;
+        }
     }
 
     ap_http_close();
 
-    printf("Print job accepted. IPP status 0x%04X\n", (unsigned int)g_test_result.ipp_status);
+    if (g_test_result.postbody_http_500_accepted) {
+        printf("Print job body sent completely; printer returned compatibility HTTP 500 after body.\n");
+        printf("Job is treated as accepted and was NOT retried.\n");
+    } else {
+        printf("Print job accepted. IPP status 0x%04X\n", (unsigned int)g_test_result.ipp_status);
+    }
     if (g_test_result.job_id != 0UL) {
         printf("Job ID: %lu\n", g_test_result.job_id);
     }

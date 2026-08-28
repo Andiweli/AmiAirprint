@@ -1,8 +1,8 @@
-## version $VER: AmiAirPrint.catalog 1.1 (22.08.2026)
+## version $VER: AmiAirPrint.catalog 1.2 (28.08.2026)
 ## language deutsch
 ## codeset 4
 ;
-; German translation for AmiAirPrint 1.1
+; German translation for AmiAirPrint 1.2
 ; ISO-8859-1 / MIBenum 4
 ; Keep all %s, %u and %lu placeholders unchanged.
 ;
@@ -385,4 +385,64 @@ Drucker ausgewählt - Drucker abfragen
 MSG_FORMAT_SEARCH_FOUND
 %u Drucker gefunden
 ; %u printer(s) found
+;
+MSG_BUTTON_ADVANCED_REACTION
+_Erweitert...
+; _Advanced...
+;
+MSG_BUTTON_ADVANCED_CLASSIC
+Erweitert...
+; Advanced...
+;
+MSG_ADVANCED_TITLE
+Erweiterte Druckoptionen
+; Advanced print options
+;
+MSG_LABEL_ENGINE
+Ausgabeformat
+; Output format
+;
+MSG_LABEL_PAPER_SOURCE
+Papierzufuhr
+; Paper source
+;
+MSG_ENGINE_PWG
+PWG Raster
+; PWG Raster
+;
+MSG_ENGINE_PDF
+PDF
+; PDF
+;
+MSG_ENGINE_POSTSCRIPT
+PostScript
+; PostScript
+;
+MSG_PRINTER_DEFAULT
+Druckerstandard
+; Printer default
+;
+MSG_SIDES_ONE
+Einseitig
+; One-sided
+;
+MSG_SIDES_LONG
+Beidseitig (lange Kante)
+; Two-sided (long edge)
+;
+MSG_SIDES_SHORT
+Beidseitig (kurze Kante)
+; Two-sided (short edge)
+;
+MSG_BUTTON_ADVANCED_USE
+Übernehmen
+; Use
+;
+MSG_STATUS_QUERY_BEFORE_ADVANCED
+Drucker vor den erweiterten Optionen abfragen
+; Query the printer before opening advanced options
+;
+MSG_DRIVER_FALLBACK_600
+600 dpi (Treiber-Fallback)
+; 600 dpi (driver fallback)
 ;

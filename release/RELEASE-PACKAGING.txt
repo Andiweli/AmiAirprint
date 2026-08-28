@@ -1,0 +1,34 @@
+AmiAirPrint 1.2 release packaging
+=================================
+
+This release/ drawer is a staging template. Before creating the public package,
+copy the freshly built 1.2 binaries into release/Setup/:
+
+  AmiAirPrintPrefs
+  AmiAirPrintPrefsClassic
+  airprint.device
+  AirPrint
+
+Also copy the existing Workbench icon as:
+
+  AmiAirPrint.info
+
+The German locale source is already staged. Compile the final German catalog
+from the included 1.2 .cd/.ct files and place it here:
+
+  Setup/Locale/Catalogs/deutsch/AmiAirPrint.catalog
+
+Do not use binaries left over from the Dev2 source archive. Build from the
+final 1.2 source with:
+
+  make clean
+  make
+
+Expected final versions:
+
+  AmiAirPrintPrefs        1.2
+  AmiAirPrintPrefsClassic 1.2
+  airprint.device         1.2
+  AirPrint                43.43
+
+The Installer script itself does not require a logic change for 1.2.

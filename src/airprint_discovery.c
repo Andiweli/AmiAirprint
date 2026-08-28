@@ -793,7 +793,7 @@ static void ap_finalize_results(struct APDiscoveryResult *result)
     }
 }
 
-int ap_discovery_search(struct APDiscoveryResult *result)
+int ap_discovery_search_mdns(struct APDiscoveryResult *result)
 {
     struct sockaddr_in destination;
     int sock;

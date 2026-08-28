@@ -17,7 +17,7 @@ AP_PrinterTag:
 	moveq #0,d0
 	rts
 	dc.w 43
-	dc.w 40
+	dc.w 43
 AP_PEDData:
 	dc.l AP_PrinterName
 	dc.l AP_Init

@@ -38,7 +38,11 @@ PREFS_OBJECTS = \
 	src/prefs_main.o \
 	src/ami_airprint_locale.o \
 	src/airprint_discovery.o \
+	src/airprint_discovery_ssdp.o \
+	src/airprint_advanced.o \
 	src/airprint_print.o \
+	src/airprint_testpage.o \
+	src/testpage_rle.o \
 	src/testpage_jpeg.o \
 	src/airprint_caps.o \
 	src/airprint_prefs.o \
@@ -48,7 +52,11 @@ PREFS_CLASSIC_OBJECTS = \
 	src/prefs_gadtools_main.o \
 	src/ami_airprint_locale.o \
 	src/airprint_discovery.o \
+	src/airprint_discovery_ssdp.o \
+	src/airprint_advanced.o \
 	src/airprint_print.o \
+	src/airprint_testpage.o \
+	src/testpage_rle.o \
 	src/testpage_jpeg.o \
 	src/airprint_caps.o \
 	src/airprint_prefs.o \
@@ -57,6 +65,8 @@ PREFS_CLASSIC_OBJECTS = \
 TEST_OBJECTS = \
 	src/test_main.o \
 	src/airprint_print.o \
+	src/airprint_testpage.o \
+	src/testpage_rle.o \
 	src/testpage_jpeg.o \
 	src/airprint_caps.o \
 	src/airprint_prefs.o \
@@ -76,6 +86,7 @@ PRINTER_OBJECTS = \
 	src/printertag.o \
 	src/printerglue.o \
 	src/mulsi3.o \
+	src/airprint_document.o \
 	src/airprint_printer.o
 
 PRINTER_TEST_OBJECTS = \
@@ -91,7 +102,11 @@ REQUIRED_FILES = \
 	include/airprint_discovery.h \
 	include/airprint_prefs.h \
 	include/airprint_print.h \
+	include/airprint_testpage.h \
+	include/testpage_rle.h \
 	include/airprint_device.h \
+	include/airprint_document.h \
+	include/airprint_advanced.h \
 	include/airprint_text_font.h \
 	include/testpage_jpeg.h \
 	src/ami_airprint_locale.c \
@@ -99,8 +114,12 @@ REQUIRED_FILES = \
 	src/airprint_ipp.c \
 	src/airprint_caps.c \
 	src/airprint_discovery.c \
+	src/airprint_discovery_ssdp.c \
+	src/airprint_advanced.c \
 	src/airprint_prefs.c \
 	src/airprint_print.c \
+	src/airprint_testpage.c \
+	src/testpage_rle.c \
 	src/airprint_device.c \
 	src/testpage_jpeg.c \
 	src/main.c \
@@ -112,6 +131,7 @@ REQUIRED_FILES = \
 	src/printertag.s \
 	src/printerglue.s \
 	src/mulsi3.S \
+	src/airprint_document.c \
 	src/airprint_printer.c \
 	src/printer_test_main.c \
 	locale/AmiAirPrint.cd
@@ -165,6 +185,12 @@ src/prefs_gadtools_main.o: src/prefs_gadtools_main.c include/ami_airprint_versio
 src/airprint_discovery.o: src/airprint_discovery.c include/airprint_discovery.h include/airprint_http.h
 	$(CC) $(CFLAGS) -c -o $@ $< $(RUNTIME)
 
+src/airprint_discovery_ssdp.o: src/airprint_discovery_ssdp.c include/airprint_discovery.h include/airprint_http.h
+	$(CC) $(CFLAGS) -c -o $@ $< $(RUNTIME)
+
+src/airprint_advanced.o: src/airprint_advanced.c include/airprint_advanced.h include/airprint_prefs.h include/airprint_caps.h include/ami_airprint_locale.h
+	$(CC) $(CFLAGS) -c -o $@ $< $(RUNTIME)
+
 src/ami_airprint_locale.o: src/ami_airprint_locale.c include/ami_airprint_locale.h
 	$(CC) $(CFLAGS) -c -o $@ $< $(RUNTIME)
 
@@ -177,7 +203,10 @@ src/printerglue.o: src/printerglue.s
 src/mulsi3.o: src/mulsi3.S
 	$(CC) -m68000 -c -o $@ $<
 
-src/airprint_printer.o: src/airprint_printer.c include/airprint_device.h include/airprint_text_font.h include/ami_airprint_brand.h include/ami_airprint_version.h
+src/airprint_document.o: src/airprint_document.c include/airprint_document.h
+	$(CC) $(PRINTER_CFLAGS) -c -o $@ $<
+
+src/airprint_printer.o: src/airprint_printer.c include/airprint_device.h include/airprint_document.h include/airprint_text_font.h include/ami_airprint_brand.h include/ami_airprint_version.h
 	$(CC) $(PRINTER_CFLAGS) -c -o $@ $<
 
 src/printer_test_main.o: src/printer_test_main.c include/airprint_device.h include/ami_airprint_version.h
@@ -195,6 +224,10 @@ $(DEVICE_TARGET): src/airprint_device.o
 
 src/main.o src/test_main.o src/device_test_main.o src/config_main.o \
 	src/airprint_http_amiga.o src/airprint_prefs.o: include/ami_airprint_version.h
+
+src/prefs_main.o src/prefs_gadtools_main.o src/test_main.o: include/airprint_testpage.h
+src/airprint_testpage.o: include/airprint_testpage.h include/testpage_rle.h include/airprint_prefs.h include/airprint_caps.h include/testpage_jpeg.h
+src/testpage_rle.o: include/testpage_rle.h
 
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $< $(RUNTIME)

@@ -189,6 +189,8 @@ int ap_ipp_build_print_job(
     const char *color_mode,
     unsigned int print_quality,
     const char *media,
+    const char *media_source,
+    const char *sides,
     unsigned int orientation_requested,
     uint32_t resolution_x,
     uint32_t resolution_y,
@@ -233,6 +235,8 @@ int ap_ipp_build_print_job(
         (color_mode != NULL && color_mode[0] != '\0') ||
         (print_quality >= 3U && print_quality <= 5U) ||
         (media != NULL && media[0] != '\0') ||
+        (media_source != NULL && media_source[0] != '\0') ||
+        (sides != NULL && sides[0] != '\0') ||
         (orientation_requested >= 3U && orientation_requested <= 6U) ||
         (resolution_x != 0U && resolution_y != 0U);
 
@@ -256,6 +260,18 @@ int ap_ipp_build_print_job(
         if (media != NULL && media[0] != '\0' &&
             !ap_put_attribute(&cursor, end, AP_IPP_TAG_KEYWORD,
                               "media", media)) {
+            return 0;
+        }
+
+        if (media_source != NULL && media_source[0] != '\0' &&
+            !ap_put_attribute(&cursor, end, AP_IPP_TAG_KEYWORD,
+                              "media-source", media_source)) {
+            return 0;
+        }
+
+        if (sides != NULL && sides[0] != '\0' &&
+            !ap_put_attribute(&cursor, end, AP_IPP_TAG_KEYWORD,
+                              "sides", sides)) {
             return 0;
         }
 

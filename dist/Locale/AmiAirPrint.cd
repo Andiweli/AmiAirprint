@@ -196,3 +196,33 @@ MSG_STATUS_PRINTER_SELECTED (94//)
 Printer selected - query printer
 MSG_FORMAT_SEARCH_FOUND (95//)
 %u printer(s) found
+MSG_BUTTON_ADVANCED_REACTION (96//)
+_Advanced...
+MSG_BUTTON_ADVANCED_CLASSIC (97//)
+Advanced...
+MSG_ADVANCED_TITLE (98//)
+Advanced print options
+MSG_LABEL_ENGINE (99//)
+Output format
+MSG_LABEL_PAPER_SOURCE (100//)
+Paper source
+MSG_ENGINE_PWG (101//)
+PWG Raster
+MSG_ENGINE_PDF (102//)
+PDF
+MSG_ENGINE_POSTSCRIPT (103//)
+PostScript
+MSG_PRINTER_DEFAULT (104//)
+Printer default
+MSG_SIDES_ONE (105//)
+One-sided
+MSG_SIDES_LONG (106//)
+Two-sided (long edge)
+MSG_SIDES_SHORT (107//)
+Two-sided (short edge)
+MSG_BUTTON_ADVANCED_USE (108//)
+Use
+MSG_STATUS_QUERY_BEFORE_ADVANCED (109//)
+Query the printer before opening advanced options
+MSG_DRIVER_FALLBACK_600 (110//)
+600 dpi (driver fallback)

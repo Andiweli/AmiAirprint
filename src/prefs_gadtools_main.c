@@ -1,10 +1,11 @@
 #include "airprint_caps.h"
 #include "airprint_discovery.h"
+#include "airprint_advanced.h"
 #include "ami_airprint_brand.h"
 #include "airprint_http.h"
 #include "airprint_prefs.h"
 #include "airprint_print.h"
-#include "testpage_jpeg.h"
+#include "airprint_testpage.h"
 #include "ami_airprint_version.h"
 #include "ami_airprint_locale.h"
 
@@ -65,6 +66,7 @@ enum {
     GID_ORIENTATION,
     GID_SCALE,
     GID_CENTER,
+    GID_ADVANCED,
     GID_TESTPAGE,
     GID_SAVE,
     GID_CANCEL,
@@ -355,6 +357,7 @@ static void ap_gui_format_ink(struct APGUI *gui)
 
 static void ap_gui_prepare_capability_text(struct APGUI *gui)
 {
+    ap_advanced_normalize_prefs(&gui->prefs, &gui->caps);
     snprintf(gui->model_text, sizeof(gui->model_text), "%s",
              gui->caps.model[0] != '\0' ? gui->caps.model : AP_TR(MSG_UNKNOWN_PRINTER, "Unknown printer"));
 
@@ -377,22 +380,25 @@ static void ap_gui_prepare_capability_text(struct APGUI *gui)
                  (unsigned int)gui->caps.ipp_version_minor);
     }
 
-    if (gui->caps.resolution_default.x != 0U) {
+    if (gui->prefs.resolution.x != 0U && gui->prefs.resolution.y != 0U) {
         snprintf(gui->resolution_text, sizeof(gui->resolution_text),
                  AP_TR(MSG_FORMAT_DPI, "%lux%lu dpi"),
-                 (unsigned long)gui->caps.resolution_default.x,
-                 (unsigned long)gui->caps.resolution_default.y);
-    } else if (gui->caps.resolution_count != 0U) {
-        snprintf(gui->resolution_text, sizeof(gui->resolution_text),
-                 AP_TR(MSG_FORMAT_DPI, "%lux%lu dpi"),
-                 (unsigned long)gui->caps.resolutions[0].x,
-                 (unsigned long)gui->caps.resolutions[0].y);
+                 (unsigned long)gui->prefs.resolution.x,
+                 (unsigned long)gui->prefs.resolution.y);
     } else {
-        snprintf(gui->resolution_text, sizeof(gui->resolution_text), "%s", AP_TR(MSG_NOT_REPORTED, "Not reported"));
+        snprintf(gui->resolution_text, sizeof(gui->resolution_text), "%s",
+                 AP_TR(MSG_PRINTER_DEFAULT, "Printer default"));
     }
 
-    snprintf(gui->duplex_text, sizeof(gui->duplex_text), "%s",
-             gui->caps.duplex_supported ? AP_TR(MSG_SUPPORTED, "Supported") : AP_TR(MSG_NOT_SUPPORTED, "Not supported"));
+    if (strcmp(gui->prefs.sides, "two-sided-long-edge") == 0)
+        snprintf(gui->duplex_text, sizeof(gui->duplex_text), "%s",
+                 AP_TR(MSG_SIDES_LONG, "Two-sided (long edge)"));
+    else if (strcmp(gui->prefs.sides, "two-sided-short-edge") == 0)
+        snprintf(gui->duplex_text, sizeof(gui->duplex_text), "%s",
+                 AP_TR(MSG_SIDES_SHORT, "Two-sided (short edge)"));
+    else
+        snprintf(gui->duplex_text, sizeof(gui->duplex_text), "%s",
+                 AP_TR(MSG_SIDES_ONE, "One-sided"));
     ap_gui_format_ink(gui);
     ap_gui_build_options(gui);
 }
@@ -452,9 +458,11 @@ struct APGUIGeometry {
     UWORD port_x;
     UWORD host_w;
     UWORD test_w;
+    UWORD advanced_w;
     UWORD save_w;
     UWORD cancel_w;
     UWORD test_x;
+    UWORD advanced_x;
     UWORD save_x;
     UWORD cancel_x;
 };
@@ -532,6 +540,7 @@ static ULONG ap_gui_required_window_width(const struct APGUI *gui)
     ULONG query_width;
     ULONG search_width;
     ULONG test_width;
+    ULONG advanced_width;
     ULONG save_width;
     ULONG cancel_width;
     ULONG required;
@@ -544,7 +553,9 @@ static ULONG ap_gui_required_window_width(const struct APGUI *gui)
     search_width = ap_gui_button_width(gui,
         AP_TR(MSG_BUTTON_SEARCH_CLASSIC, "Search..."), 96UL);
     test_width = ap_gui_button_width(gui,
-        AP_TR(MSG_BUTTON_TESTPAGE_CLASSIC, "Testpage"), 110UL);
+        AP_TR(MSG_BUTTON_TESTPAGE_CLASSIC, "Testpage"), 104UL);
+    advanced_width = ap_gui_button_width(gui,
+        AP_TR(MSG_BUTTON_ADVANCED_CLASSIC, "Advanced..."), 104UL);
     save_width = ap_gui_button_width(gui,
         AP_TR(MSG_BUTTON_SAVE_CLASSIC, "Save"), 110UL);
     cancel_width = ap_gui_button_width(gui,
@@ -574,8 +585,8 @@ static ULONG ap_gui_required_window_width(const struct APGUI *gui)
     required = ap_gui_max_width(required, candidate);
 
     candidate = AP_EDGE_MARGIN + test_width + AP_BOTTOM_BUTTON_GAP +
-                save_width + AP_BOTTOM_BUTTON_GAP + cancel_width +
-                AP_EDGE_MARGIN;
+                advanced_width + AP_BOTTOM_BUTTON_GAP + save_width +
+                AP_BOTTOM_BUTTON_GAP + cancel_width + AP_EDGE_MARGIN;
     required = ap_gui_max_width(required, candidate);
 
     candidate = AP_EDGE_MARGIN + primary_label_width + AP_LABEL_GAP +
@@ -609,6 +620,7 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
     ULONG host_right;
     ULONG host_w;
     ULONG test_w;
+    ULONG advanced_w;
     ULONG save_w;
     ULONG cancel_w;
     ULONG button_total;
@@ -656,13 +668,16 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
     if (path_w < AP_MIN_FULL_GADGET_WIDTH) return 0;
 
     test_w = ap_gui_button_width(gui,
-        AP_TR(MSG_BUTTON_TESTPAGE_CLASSIC, "Testpage"), 110UL);
+        AP_TR(MSG_BUTTON_TESTPAGE_CLASSIC, "Testpage"), 104UL);
+    advanced_w = ap_gui_button_width(gui,
+        AP_TR(MSG_BUTTON_ADVANCED_CLASSIC, "Advanced..."), 104UL);
     save_w = ap_gui_button_width(gui,
         AP_TR(MSG_BUTTON_SAVE_CLASSIC, "Save"), 110UL);
     cancel_w = ap_gui_button_width(gui,
         AP_TR(MSG_BUTTON_CANCEL_CLASSIC, "Cancel"), 110UL);
-    button_total = test_w + AP_BOTTOM_BUTTON_GAP + save_w +
-                   AP_BOTTOM_BUTTON_GAP + cancel_w;
+    button_total = test_w + AP_BOTTOM_BUTTON_GAP + advanced_w +
+                   AP_BOTTOM_BUTTON_GAP + save_w + AP_BOTTOM_BUTTON_GAP +
+                   cancel_w;
     if (button_total + 2UL * AP_EDGE_MARGIN > width) return 0;
     button_x = (width - button_total) / 2UL;
 
@@ -670,7 +685,8 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
         right_w > 65535UL || query_w > 65535UL || query_x > 65535UL ||
         search_w > 65535UL || search_x > 65535UL || path_w > 65535UL ||
         port_x > 65535UL || host_w > 65535UL || test_w > 65535UL ||
-        save_w > 65535UL || cancel_w > 65535UL || button_x > 65535UL)
+        advanced_w > 65535UL || save_w > 65535UL || cancel_w > 65535UL ||
+        button_x > 65535UL)
         return 0;
 
     geo->full_x = (UWORD)left_x;
@@ -687,11 +703,15 @@ static int ap_gui_compute_geometry(const struct APGUI *gui,
     geo->port_x = (UWORD)port_x;
     geo->host_w = (UWORD)host_w;
     geo->test_w = (UWORD)test_w;
+    geo->advanced_w = (UWORD)advanced_w;
     geo->save_w = (UWORD)save_w;
     geo->cancel_w = (UWORD)cancel_w;
     geo->test_x = (UWORD)button_x;
-    geo->save_x = (UWORD)(button_x + test_w + AP_BOTTOM_BUTTON_GAP);
+    geo->advanced_x = (UWORD)(button_x + test_w + AP_BOTTOM_BUTTON_GAP);
+    geo->save_x = (UWORD)(button_x + test_w + AP_BOTTOM_BUTTON_GAP +
+                          advanced_w + AP_BOTTOM_BUTTON_GAP);
     geo->cancel_x = (UWORD)(button_x + test_w + AP_BOTTOM_BUTTON_GAP +
+                            advanced_w + AP_BOTTOM_BUTTON_GAP +
                             save_w + AP_BOTTOM_BUTTON_GAP);
     return 1;
 }
@@ -953,6 +973,11 @@ static int ap_gui_build_gadgets(struct APGUI *gui)
     previous = ap_gui_add_gadget(gui, previous, BUTTON_KIND, GID_TESTPAGE,
                                  (STRPTR)AP_TR(MSG_BUTTON_TESTPAGE_CLASSIC, "Testpage"),
                                  geo.test_x, y, geo.test_w, h,
+                                 PLACETEXT_IN, tags);
+    if (previous == NULL) return 0;
+    previous = ap_gui_add_gadget(gui, previous, BUTTON_KIND, GID_ADVANCED,
+                                 (STRPTR)AP_TR(MSG_BUTTON_ADVANCED_CLASSIC, "Advanced..."),
+                                 geo.advanced_x, y, geo.advanced_w, h,
                                  PLACETEXT_IN, tags);
     if (previous == NULL) return 0;
     previous = ap_gui_add_gadget(gui, previous, BUTTON_KIND, GID_SAVE,
@@ -1551,8 +1576,10 @@ static int ap_gui_capture_selections(struct APGUI *gui)
 static int ap_gui_testpage(struct APGUI *gui)
 {
     struct APPrintResult print_result;
+    struct APTestPageDocument testpage;
     char error_text[160];
     char message[192];
+    int ok;
 
     if (!gui->queried) {
         ap_gui_set_status(gui, AP_TR(MSG_STATUS_QUERY_BEFORE_TEST, "Query the printer before printing a test page"));
@@ -1561,10 +1588,26 @@ static int ap_gui_testpage(struct APGUI *gui)
     if (!ap_gui_capture_selections(gui)) return 0;
 
     ap_gui_set_status(gui, AP_TR(MSG_STATUS_PRINTING_TEST, "Printing test page..."));
-    if (!ap_print_document(&gui->prefs, &gui->caps, gui->queried,
-                           g_airprint_testpage_jpeg, g_airprint_testpage_jpeg_len,
-                           "image/jpeg", AP_TR(MSG_TESTPAGE_JOB_NAME, "AmigaOS AirPrint Test Page"),
-                           &print_result, error_text, sizeof(error_text))) {
+    error_text[0] = '\0';
+    if (!ap_testpage_build(&gui->prefs, &gui->caps, gui->queried,
+                           &testpage, error_text, sizeof(error_text))) {
+        snprintf(message, sizeof(message), AP_TR(MSG_FORMAT_TEST_FAILED, "Test page failed: %s"),
+                 error_text[0] != '\0' ? error_text : AP_TR(MSG_UNKNOWN_PRINT_ERROR, "Unknown print error"));
+        ap_gui_set_status(gui, message);
+        return 0;
+    }
+
+    ok = ap_print_document(&gui->prefs, &gui->caps, gui->queried,
+                           testpage.data, testpage.length, testpage.format,
+                           AP_TR(MSG_TESTPAGE_JOB_NAME, "AmigaOS AirPrint Test Page"),
+                           &print_result, error_text, sizeof(error_text));
+    ap_testpage_free(&testpage);
+    if (ok && print_result.postbody_http_500_accepted) {
+        /* Remember the observed firmware quirk; Save persists it. */
+        gui->caps.http_postbody_500_ok = 1;
+    }
+
+    if (!ok) {
         snprintf(message, sizeof(message), AP_TR(MSG_FORMAT_TEST_FAILED, "Test page failed: %s"),
                  error_text[0] != '\0' ? error_text : AP_TR(MSG_UNKNOWN_PRINT_ERROR, "Unknown print error"));
         ap_gui_set_status(gui, message);
@@ -1654,6 +1697,18 @@ static int ap_gui_run(struct APGUI *gui)
                         break;
                     case GID_SEARCH:
                         (void)ap_gui_search(gui);
+                        break;
+                    case GID_ADVANCED:
+                        if (!gui->queried) {
+                            ap_gui_set_status(gui,
+                                AP_TR(MSG_STATUS_QUERY_BEFORE_ADVANCED,
+                                      "Query the printer before opening advanced options"));
+                        } else if (ap_gui_capture_selections(gui) &&
+                                   ap_advanced_requester(gui->window->WScreen,
+                                                         &gui->prefs,
+                                                         &gui->caps)) {
+                            ap_gui_update_capabilities(gui);
+                        }
                         break;
                     case GID_TESTPAGE:
                         (void)ap_gui_testpage(gui);

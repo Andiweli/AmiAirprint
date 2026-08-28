@@ -1,4 +1,5 @@
 #include "airprint_device.h"
+#include "airprint_document.h"
 #include "airprint_text_font.h"
 #include "ami_airprint_brand.h"
 
@@ -17,7 +18,7 @@
 #include <proto/dos.h>
 
 /*
- * AmiAirPrint printer.device driver, release 1.0 (segment 43.40).
+ * AmiAirPrint printer.device driver, release 1.2 (segment 43.43).
  *
  * printer.device performs the Amiga-side source decoding, scaling and color
  * conversion and calls AP_Render() once per destination row. This driver
@@ -53,6 +54,12 @@
  * DoSpecial().  Printable text remains consumed by ConvFunc and therefore
  * never reaches the unused compatibility printer port.
  *
+ * Release 1.2 / 43.43 fixes page-boundary handling after a graphics dump
+ * closed with SPECIAL_NOFORMFEED.  A later form feed/reset now closes that
+ * pending physical graphics page even when no text was added in between.
+ * This preserves FinalWriter strip continuation while allowing applications
+ * such as Wordworth to delimit consecutive full-page graphics dumps.
+ *
  * Release 1.0 PersonalPaint compatibility implements the documented Case-5
  * SetDensity behavior (100/150/200/300/600 dpi logical rasters expanded to
  * the fixed 600-dpi PWG page) and isolates printer.device's unused primitive
@@ -62,7 +69,7 @@
  */
 
 #define AIRPRINT_DRIVER_VERSION 43
-#define AIRPRINT_DRIVER_REVISION 40
+#define AIRPRINT_DRIVER_REVISION 43
 
 #define AP_PWG_HEADER_SIZE 1796UL
 #define AP_PWG_PREFIX_SIZE (4UL + AP_PWG_HEADER_SIZE)
@@ -138,6 +145,10 @@ static LONG ap_primitive_write_sink(APTR data, LONG length);
 static LONG ap_primitive_bothready_sink(void);
 static void ap_install_primitive_io_sinks(void);
 static void ap_restore_primitive_io(void);
+static void ap_abort_active_job(void);
+static LONG ap_finish_current_page(void);
+static LONG ap_send_blank_rows(ULONG count);
+static LONG ap_start_raster(void);
 LONG AP_OpenSetup(void) __asm__("AP_OpenSetup");
 void AP_CloseSetup(void) __asm__("AP_CloseSetup");
 LONG AP_Render(LONG ct, LONG x, LONG y, LONG status) __asm__("AP_Render");
@@ -163,8 +174,8 @@ static int g_monochrome;
 static int g_sgray_supported;
 static UWORD g_scale_percent = 100U;
 static UWORD g_job_scale_percent = 100U;
+static UWORD g_output_dpi = 600U;
 static UWORD g_frontend_dpi = 600U;
-static UWORD g_frontend_scale = 1U;
 static ULONG g_frontend_page_width;
 static ULONG g_frontend_page_height;
 static int g_center_on_paper;
@@ -173,6 +184,7 @@ static ULONG g_picture_height;
 static ULONG g_scaled_picture_width;
 static ULONG g_scaled_picture_height;
 static ULONG g_top_padding;
+static ULONG g_vertical_dpi_accum;
 static UWORD g_vertical_scale_accum;
 static UWORD g_emit_current_rows;
 static ULONG g_page_width_points;
@@ -184,6 +196,35 @@ static UBYTE *g_encoded_row;
 static ULONG g_raw_alloc_size;
 static ULONG g_encoded_alloc_size;
 static UBYTE g_pwg_prefix[AP_PWG_PREFIX_SIZE];
+
+enum {
+    AP_ENGINE_PWG = 0,
+    AP_ENGINE_PDF = 1,
+    AP_ENGINE_POSTSCRIPT = 2
+};
+static UWORD g_engine = AP_ENGINE_PWG;
+enum {
+    AP_DUPLEX_ONE_SIDED = 0,
+    AP_DUPLEX_LONG_EDGE = 1,
+    AP_DUPLEX_SHORT_EDGE = 2
+};
+enum {
+    AP_SHEET_BACK_NORMAL = 0,
+    AP_SHEET_BACK_FLIPPED = 1,
+    AP_SHEET_BACK_ROTATED = 2,
+    AP_SHEET_BACK_MANUAL_TUMBLE = 3
+};
+static UWORD g_duplex_mode;
+static int g_duplex_requested;
+static int g_duplex_document_open;
+/* A graphics dump closed with SPECIAL_NOFORMFEED is only one strip of the
+ * current physical page.  Keep the document/page stream open between dump
+ * requests and resume it at the next PRS_INIT. */
+static int g_graphics_continuation_open;
+static UWORD g_sheet_back = AP_SHEET_BACK_NORMAL;
+static ULONG g_pwg_page_number;
+static struct APDocumentWriter g_document_writer;
+
 static UBYTE g_prefs_input[256];
 static char g_prefs_line[128];
 static LONG (*g_original_pwrite)();
@@ -306,21 +347,14 @@ static void ap_set_graphics_density(UWORD special)
         100U, 100U, 150U, 200U, 300U, 300U, 600U, 600U
     };
     UWORD dpi = dpi_table[ap_density_index(special)];
-    UWORD scale;
-
-    /* Avoid freestanding libgcc division helpers in this LoadSeg driver. */
-    switch (dpi) {
-        case 100U: scale = 6U; break;
-        case 150U: scale = 4U; break;
-        case 200U: scale = 3U; break;
-        case 300U: scale = 2U; break;
-        default:   scale = 1U; break;
-    }
 
     g_frontend_dpi = dpi;
-    g_frontend_scale = scale;
-    g_frontend_page_width = ap_udiv_small(g_page_width, scale);
-    g_frontend_page_height = ap_udiv_small(g_page_height, scale);
+    g_frontend_page_width = ap_udiv_small(
+        ap_mul_small(g_page_width, g_frontend_dpi) + (ULONG)(g_output_dpi >> 1),
+        g_output_dpi);
+    g_frontend_page_height = ap_udiv_small(
+        ap_mul_small(g_page_height, g_frontend_dpi) + (ULONG)(g_output_dpi >> 1),
+        g_output_dpi);
     if (g_frontend_page_width == 0UL) g_frontend_page_width = 1UL;
     if (g_frontend_page_height == 0UL) g_frontend_page_height = 1UL;
 
@@ -332,7 +366,9 @@ static void ap_set_graphics_density(UWORD special)
 
 static ULONG ap_frontend_to_pwg(ULONG value)
 {
-    return ap_mul_small(value, g_frontend_scale);
+    if (g_frontend_dpi == 0U) return value;
+    return ap_udiv_small(ap_mul_small(value, g_output_dpi) +
+                         (ULONG)(g_frontend_dpi >> 1), g_frontend_dpi);
 }
 
 static UWORD ap_job_fit_percent(ULONG width, ULONG height)
@@ -403,25 +439,6 @@ static LONG ap_transport_open(void)
     }
     g_apdev_open = 1;
 
-    return PDERR_NOERR;
-}
-
-static LONG ap_transport_command(UWORD command)
-{
-    LONG error;
-
-    if (!g_apdev_open || g_apdev_io == NULL)
-        return PDERR_CANCEL;
-
-    g_apdev_io->io_Command = command;
-    g_apdev_io->io_Flags = 0U;
-    g_apdev_io->io_Data = NULL;
-    g_apdev_io->io_Length = 0UL;
-    g_apdev_io->io_Actual = 0UL;
-    g_apdev_io->io_Error = 0;
-
-    error = (LONG)DoIO((struct IORequest *)g_apdev_io);
-    if (error != 0L || g_apdev_io->io_Error != 0) return PDERR_CANCEL;
     return PDERR_NOERR;
 }
 
@@ -557,7 +574,7 @@ static int ap_parse_decimal_1000(const char **cursor, char stop, ULONG *value)
  * Examples: iso_a4_210x297mm, na_letter_8.5x11in, na_5x7_5x7in.
  * custom_min/custom_max describe capability bounds, not selectable sheets.
  */
-static int ap_media_geometry(const char *keyword,
+static int ap_media_geometry(const char *keyword, UWORD output_dpi,
                              ULONG *width_pixels,
                              ULONG *height_pixels,
                              ULONG *width_points,
@@ -573,7 +590,8 @@ static int ap_media_geometry(const char *keyword,
     ULONG hpt;
     int unit_mm;
 
-    if (keyword == NULL || width_pixels == NULL || height_pixels == NULL ||
+    if (keyword == NULL || output_dpi == 0U ||
+        width_pixels == NULL || height_pixels == NULL ||
         width_points == NULL || height_points == NULL) return 0;
     if (ap_text_starts_with(keyword, "custom_min_") ||
         ap_text_starts_with(keyword, "custom_max_")) return 0;
@@ -587,7 +605,6 @@ static int ap_media_geometry(const char *keyword,
     p = dims;
     if (!ap_parse_decimal_1000(&p, 'x', &w1000)) return 0;
 
-    /* The second number ends at the first letter of the two-character unit. */
     {
         const char *q = p;
         while (*q >= '0' && *q <= '9') ++q;
@@ -603,26 +620,21 @@ static int ap_media_geometry(const char *keyword,
     if (!ap_parse_decimal_1000(&p, unit_mm ? 'm' : 'i', &h1000)) return 0;
     if (unit_mm) {
         if (p[0] != 'm' || p[1] != '\0') return 0;
-
-        /* thousandths mm -> pixels at 600 dpi: value * 3 / 127 */
-        wp = ap_udiv_small((w1000 << 1) + w1000, 127U);
-        hp = ap_udiv_small((h1000 << 1) + h1000, 127U);
-
-        /* thousandths mm -> PostScript points: value * 36 / 12700 */
+        /* thousandths mm -> pixels at selected dpi: value*dpi/25400. */
+        wp = ap_udiv_small(ap_mul_small(w1000, output_dpi) + 12700UL, 25400U);
+        hp = ap_udiv_small(ap_mul_small(h1000, output_dpi) + 12700UL, 25400U);
         wpt = ap_udiv_small((w1000 << 5) + (w1000 << 2) + 6350UL, 12700U);
         hpt = ap_udiv_small((h1000 << 5) + (h1000 << 2) + 6350UL, 12700U);
     } else {
         if (p[0] != 'n' || p[1] != '\0') return 0;
-
-        /* thousandths inch -> pixels/points. */
-        wp = ap_udiv_small((w1000 << 1) + w1000, 5U);
-        hp = ap_udiv_small((h1000 << 1) + h1000, 5U);
+        /* thousandths inch -> selected-dpi pixels / PostScript points. */
+        wp = ap_udiv_small(ap_mul_small(w1000, output_dpi) + 500UL, 1000U);
+        hp = ap_udiv_small(ap_mul_small(h1000, output_dpi) + 500UL, 1000U);
         wpt = ap_udiv_small((w1000 << 3) + w1000 + 62UL, 125U);
         hpt = ap_udiv_small((h1000 << 3) + h1000 + 62UL, 125U);
     }
 
-    /* Protect the row-buffer arithmetic and reject obviously invalid media. */
-    if (wp == 0UL || hp == 0UL || wp > 20000UL || hp > 20000UL ||
+    if (wp == 0UL || hp == 0UL || wp > 40000UL || hp > 40000UL ||
         wpt == 0UL || hpt == 0UL || wpt > 2400UL || hpt > 2400UL) return 0;
 
     *width_pixels = wp;
@@ -632,9 +644,39 @@ static int ap_media_geometry(const char *keyword,
     return 1;
 }
 
+static int ap_parse_resolution(const char *text, UWORD *dpi)
+{
+    ULONG x = 0UL;
+    ULONG y = 0UL;
+    ULONG units = 0UL;
+    int part = 0;
+    int digits = 0;
+
+    if (text == NULL || dpi == NULL) return 0;
+    while (*text != '\0') {
+        if (*text >= '0' && *text <= '9') {
+            ULONG *target = part == 0 ? &x : (part == 1 ? &y : &units);
+            *target = (*target << 3) + (*target << 1) + (ULONG)(*text - '0');
+            digits = 1;
+        } else if (*text == ',' && part < 2 && digits) {
+            ++part;
+            digits = 0;
+        } else {
+            return 0;
+        }
+        ++text;
+    }
+    if (part != 2 || !digits || units != 3UL || x != y ||
+        x < 72UL || x > 2400UL) return 0;
+    *dpi = (UWORD)x;
+    return 1;
+}
+
 static void ap_parse_prefs_line(char *line, int *landscape, int *monochrome,
                                 int *sgray_supported, UWORD *scale_percent,
-                                int *center_on_paper,
+                                int *center_on_paper, UWORD *engine,
+                                UWORD *duplex_mode, UWORD *sheet_back,
+                                UWORD *output_dpi,
                                 char *media, ULONG media_capacity)
 {
     static const char orientation_key[] = "ORIENTATION=";
@@ -643,32 +685,30 @@ static void ap_parse_prefs_line(char *line, int *landscape, int *monochrome,
     static const char scale_key[] = "SCALE=";
     static const char center_key[] = "CENTER_ON_PAPER=";
     static const char sgray_key[] = "CAP_PWG_SGRAY8_SUPPORTED=";
+    static const char engine_key[] = "ENGINE=";
+    static const char sides_key[] = "SIDES=";
+    static const char sheet_back_key[] = "CAP_PWG_SHEET_BACK=";
+    static const char resolution_key[] = "RESOLUTION=";
     ULONG i;
 
     if (line == NULL || landscape == NULL || monochrome == NULL ||
         sgray_supported == NULL || scale_percent == NULL ||
-        center_on_paper == NULL || media == NULL) return;
+        center_on_paper == NULL || engine == NULL ||
+        duplex_mode == NULL || sheet_back == NULL || output_dpi == NULL ||
+        media == NULL) return;
 
-    for (i = 0UL; orientation_key[i] != '\0'; ++i) {
-        if (line[i] != orientation_key[i]) break;
-    }
+    for (i = 0UL; orientation_key[i] != '\0'; ++i) if (line[i] != orientation_key[i]) break;
     if (orientation_key[i] == '\0') {
         *landscape = ap_text_equals(line + i, "landscape") ? 1 : 0;
         return;
     }
-
-    for (i = 0UL; color_key[i] != '\0'; ++i) {
-        if (line[i] != color_key[i]) break;
-    }
+    for (i = 0UL; color_key[i] != '\0'; ++i) if (line[i] != color_key[i]) break;
     if (color_key[i] == '\0') {
         *monochrome = (ap_text_equals(line + i, "monochrome") ||
                        ap_text_equals(line + i, "auto-monochrome")) ? 1 : 0;
         return;
     }
-
-    for (i = 0UL; scale_key[i] != '\0'; ++i) {
-        if (line[i] != scale_key[i]) break;
-    }
+    for (i = 0UL; scale_key[i] != '\0'; ++i) if (line[i] != scale_key[i]) break;
     if (scale_key[i] == '\0') {
         const char *p = line + i;
         ULONG value = 0UL;
@@ -682,36 +722,64 @@ static void ap_parse_prefs_line(char *line, int *landscape, int *monochrome,
             *scale_percent = (UWORD)value;
         return;
     }
-
-    for (i = 0UL; center_key[i] != '\0'; ++i) {
-        if (line[i] != center_key[i]) break;
-    }
+    for (i = 0UL; center_key[i] != '\0'; ++i) if (line[i] != center_key[i]) break;
     if (center_key[i] == '\0') {
         *center_on_paper = ap_text_equals(line + i, "1") ? 1 : 0;
         return;
     }
-
-    for (i = 0UL; sgray_key[i] != '\0'; ++i) {
-        if (line[i] != sgray_key[i]) break;
-    }
+    for (i = 0UL; sgray_key[i] != '\0'; ++i) if (line[i] != sgray_key[i]) break;
     if (sgray_key[i] == '\0') {
         *sgray_supported = ap_text_equals(line + i, "1") ? 1 : 0;
         return;
     }
-
-    for (i = 0UL; media_key[i] != '\0'; ++i) {
-        if (line[i] != media_key[i]) return;
+    for (i = 0UL; engine_key[i] != '\0'; ++i) if (line[i] != engine_key[i]) break;
+    if (engine_key[i] == '\0') {
+        if (ap_text_equals(line + i, "pdf")) *engine = AP_ENGINE_PDF;
+        else if (ap_text_equals(line + i, "postscript")) *engine = AP_ENGINE_POSTSCRIPT;
+        else *engine = AP_ENGINE_PWG;
+        return;
     }
+    for (i = 0UL; sides_key[i] != '\0'; ++i) if (line[i] != sides_key[i]) break;
+    if (sides_key[i] == '\0') {
+        if (ap_text_equals(line + i, "two-sided-long-edge"))
+            *duplex_mode = AP_DUPLEX_LONG_EDGE;
+        else if (ap_text_equals(line + i, "two-sided-short-edge"))
+            *duplex_mode = AP_DUPLEX_SHORT_EDGE;
+        else
+            *duplex_mode = AP_DUPLEX_ONE_SIDED;
+        return;
+    }
+    for (i = 0UL; sheet_back_key[i] != '\0'; ++i)
+        if (line[i] != sheet_back_key[i]) break;
+    if (sheet_back_key[i] == '\0') {
+        if (ap_text_equals(line + i, "flipped"))
+            *sheet_back = AP_SHEET_BACK_FLIPPED;
+        else if (ap_text_equals(line + i, "rotated"))
+            *sheet_back = AP_SHEET_BACK_ROTATED;
+        else if (ap_text_equals(line + i, "manual-tumble"))
+            *sheet_back = AP_SHEET_BACK_MANUAL_TUMBLE;
+        else
+            *sheet_back = AP_SHEET_BACK_NORMAL;
+        return;
+    }
+    for (i = 0UL; resolution_key[i] != '\0'; ++i) if (line[i] != resolution_key[i]) break;
+    if (resolution_key[i] == '\0') {
+        UWORD dpi;
+        if (ap_parse_resolution(line + i, &dpi)) *output_dpi = dpi;
+        return;
+    }
+    for (i = 0UL; media_key[i] != '\0'; ++i) if (line[i] != media_key[i]) return;
     if (line[i] != '\0' &&
         !ap_text_starts_with(line + i, "custom_min_") &&
-        !ap_text_starts_with(line + i, "custom_max_")) {
+        !ap_text_starts_with(line + i, "custom_max_"))
         ap_copy_string(media, media_capacity, line + i);
-    }
 }
 
 static void ap_scan_prefs_file(CONST_STRPTR path, int *landscape, int *monochrome,
                                int *sgray_supported, UWORD *scale_percent,
-                               int *center_on_paper,
+                               int *center_on_paper, UWORD *engine,
+                               UWORD *duplex_mode, UWORD *sheet_back,
+                               UWORD *output_dpi,
                                char *media, ULONG media_capacity)
 {
     BPTR file;
@@ -720,7 +788,9 @@ static void ap_scan_prefs_file(CONST_STRPTR path, int *landscape, int *monochrom
 
     if (path == NULL || landscape == NULL || monochrome == NULL ||
         sgray_supported == NULL || scale_percent == NULL ||
-        center_on_paper == NULL || media == NULL || DOSBase == NULL) return;
+        center_on_paper == NULL || engine == NULL ||
+        duplex_mode == NULL || sheet_back == NULL || output_dpi == NULL ||
+        media == NULL || DOSBase == NULL) return;
     file = Open(path, MODE_OLDFILE);
     if (file == 0) return;
 
@@ -736,6 +806,7 @@ static void ap_scan_prefs_file(CONST_STRPTR path, int *landscape, int *monochrom
                 g_prefs_line[line_len] = '\0';
                 ap_parse_prefs_line(g_prefs_line, landscape, monochrome,
                                     sgray_supported, scale_percent, center_on_paper,
+                                    engine, duplex_mode, sheet_back, output_dpi,
                                     media, media_capacity);
                 line_len = 0UL;
             } else if (line_len + 1UL < (ULONG)sizeof(g_prefs_line)) {
@@ -743,11 +814,11 @@ static void ap_scan_prefs_file(CONST_STRPTR path, int *landscape, int *monochrom
             }
         }
     }
-
     if (line_len != 0UL) {
         g_prefs_line[line_len] = '\0';
         ap_parse_prefs_line(g_prefs_line, landscape, monochrome,
                             sgray_supported, scale_percent, center_on_paper,
+                            engine, duplex_mode, sheet_back, output_dpi,
                             media, media_capacity);
     }
     Close(file);
@@ -755,10 +826,13 @@ static void ap_scan_prefs_file(CONST_STRPTR path, int *landscape, int *monochrom
 
 static void ap_load_page_prefs(int *landscape, int *monochrome, int *sgray_supported,
                                UWORD *scale_percent, int *center_on_paper,
+                               UWORD *engine, UWORD *duplex_mode,
+                               UWORD *sheet_back, UWORD *output_dpi,
                                char *media, ULONG media_capacity)
 {
     if (landscape == NULL || monochrome == NULL || sgray_supported == NULL ||
         scale_percent == NULL || center_on_paper == NULL ||
+        engine == NULL || duplex_mode == NULL || sheet_back == NULL || output_dpi == NULL ||
         media == NULL || media_capacity == 0UL) return;
 
     *landscape = 0;
@@ -766,19 +840,24 @@ static void ap_load_page_prefs(int *landscape, int *monochrome, int *sgray_suppo
     *sgray_supported = 0;
     *scale_percent = 100U;
     *center_on_paper = 0;
+    *engine = AP_ENGINE_PWG;
+    *duplex_mode = AP_DUPLEX_ONE_SIDED;
+    *sheet_back = AP_SHEET_BACK_NORMAL;
+    *output_dpi = 600U;
     ap_copy_string(media, media_capacity, AP_DEFAULT_MEDIA);
 
     if (SysBase == NULL) return;
     DOSBase = (struct DosLibrary *)OpenLibrary((CONST_STRPTR)"dos.library", 39L);
     if (DOSBase == NULL) return;
 
-    /* ENV overrides ENVARC, just like the normal Preferences loader. */
     ap_scan_prefs_file((CONST_STRPTR)"ENVARC:AirPrint.prefs",
                        landscape, monochrome, sgray_supported, scale_percent,
-                       center_on_paper, media, media_capacity);
+                       center_on_paper, engine, duplex_mode, sheet_back, output_dpi,
+                       media, media_capacity);
     ap_scan_prefs_file((CONST_STRPTR)"ENV:AirPrint.prefs",
                        landscape, monochrome, sgray_supported, scale_percent,
-                       center_on_paper, media, media_capacity);
+                       center_on_paper, engine, duplex_mode, sheet_back, output_dpi,
+                       media, media_capacity);
 
     CloseLibrary((struct Library *)DOSBase);
     DOSBase = NULL;
@@ -794,14 +873,18 @@ static void ap_apply_page_prefs(void)
 
     ap_load_page_prefs(&g_landscape, &g_monochrome, &g_sgray_supported,
                        &g_scale_percent, &g_center_on_paper,
+                       &g_engine, &g_duplex_mode, &g_sheet_back, &g_output_dpi,
                        media, (ULONG)sizeof(media));
+    if (g_engine != AP_ENGINE_PWG) g_duplex_mode = AP_DUPLEX_ONE_SIDED;
+    g_duplex_requested = g_duplex_mode != AP_DUPLEX_ONE_SIDED;
 
-    if (!ap_media_geometry(media,
+    if (!ap_media_geometry(media, g_output_dpi,
                            &width_pixels, &height_pixels,
                            &width_points, &height_points)) {
         ap_copy_string(media, (ULONG)sizeof(media), AP_DEFAULT_MEDIA);
-        width_pixels = AP_DEFAULT_WIDTH_PIXELS;
-        height_pixels = AP_DEFAULT_HEIGHT_PIXELS;
+        /* Static fallback geometry is defined at 600 dpi. */
+        width_pixels = ap_udiv_small(ap_mul_small(AP_DEFAULT_WIDTH_PIXELS, g_output_dpi), 600U);
+        height_pixels = ap_udiv_small(ap_mul_small(AP_DEFAULT_HEIGHT_PIXELS, g_output_dpi), 600U);
         width_points = AP_DEFAULT_WIDTH_POINTS;
         height_points = AP_DEFAULT_HEIGHT_POINTS;
     }
@@ -823,6 +906,10 @@ static void ap_apply_page_prefs(void)
     g_row_bytes = g_bytes_per_pixel == 1UL ? g_page_width :
                   (g_page_width << 1) + g_page_width;
     g_encoded_max = 1UL + g_row_bytes + ((g_page_width + 127UL) >> 7);
+    {
+        ULONG document_scratch = ap_document_scratch_size(g_row_bytes);
+        if (document_scratch > g_encoded_max) g_encoded_max = document_scratch;
+    }
 
     if (AP_PD != NULL) {
         AP_PD->pd_Preferences.PrintAspect =
@@ -835,8 +922,7 @@ static void ap_apply_page_prefs(void)
      * graphics geometry remains the full selected PWG media raster. */
     ap_text_update_geometry();
     AP_PEDData.ped_NumCharSets = 1U;
-    g_frontend_dpi = 600U;
-    g_frontend_scale = 1U;
+    g_frontend_dpi = g_output_dpi;
     g_frontend_page_width = g_page_width;
     g_frontend_page_height = g_page_height;
     AP_PEDData.ped_MaxXDots = g_frontend_page_width;
@@ -905,6 +991,9 @@ LONG AP_OpenSetup(void)
     if (err != PDERR_NOERR) return err;
 
     ap_install_primitive_io_sinks();
+    g_duplex_document_open = 0;
+    g_graphics_continuation_open = 0;
+    g_pwg_page_number = 0UL;
     ap_apply_page_prefs();
     ap_text_reset_state();
     AP_PEDData.ped_PrintMode = 0L;
@@ -933,15 +1022,32 @@ static void ap_release_buffer(void)
 
 void AP_CloseSetup(void)
 {
-    /* Page-oriented text printers eject an outstanding text page at Close.
-     * Do the same here before releasing the private airprint.device handle. */
+    LONG close_err = PDERR_NOERR;
+
+    /* Page-oriented text printers eject an outstanding text page at Close. */
     (void)ap_text_finish_page(0);
 
-    /* A normal PRS_CLOSE already submitted/deleted a graphics spool with END.
-     * If printer.device closes us while a graphics raster is still active,
-     * discard only that incomplete spool. */
-    if (g_raster_started && g_apdev_open)
-        (void)ap_transport_command(CMD_CLEAR);
+    /* A final SPECIAL_NOFORMFEED dump can legitimately remain open until the
+     * application closes printer.device.  Complete that physical page instead
+     * of aborting it. */
+    if (g_graphics_continuation_open && !g_raster_started && g_apdev_open) {
+        close_err = ap_start_raster();
+        if (close_err == PDERR_NOERR && g_rows_sent < g_page_height)
+            close_err = ap_send_blank_rows(g_page_height - g_rows_sent);
+        if (close_err == PDERR_NOERR) close_err = ap_finish_current_page();
+        g_graphics_continuation_open = 0;
+        ap_release_buffer();
+    }
+
+    if (close_err != PDERR_NOERR && g_apdev_open) {
+        ap_abort_active_job();
+    } else if (g_raster_started && g_apdev_open) {
+        ap_abort_active_job();
+    } else if (g_duplex_document_open && g_apdev_open) {
+        if (ap_control(APDEV_CTL_END, APDEV_FORMAT_PWG_RASTER) != PDERR_NOERR)
+            ap_abort_active_job();
+        g_duplex_document_open = 0;
+    }
 
     ap_release_buffer();
     ap_text_reset_state();
@@ -949,8 +1055,7 @@ void AP_CloseSetup(void)
     /* Leave the shared PED and primitive I/O callbacks exactly as they were
      * before this driver instance was opened. */
     if (g_page_width != 0UL && g_page_height != 0UL) {
-        g_frontend_dpi = 600U;
-        g_frontend_scale = 1U;
+        g_frontend_dpi = g_output_dpi;
         g_frontend_page_width = g_page_width;
         g_frontend_page_height = g_page_height;
         AP_PEDData.ped_MaxXDots = g_frontend_page_width;
@@ -979,14 +1084,16 @@ static void ap_build_pwg_prefix(void)
     ap_copy_text(h + 0UL, 64UL, "PwgRaster");
     ap_copy_text(h + 128UL, 64UL, "stationery");
 
-    ap_put_be32(h + 276UL, 600UL); /* HWResolution X */
-    ap_put_be32(h + 280UL, 600UL); /* HWResolution Y */
+    ap_put_be32(h + 276UL, (ULONG)g_output_dpi); /* HWResolution X */
+    ap_put_be32(h + 280UL, (ULONG)g_output_dpi); /* HWResolution Y */
+    ap_put_be32(h + 272UL, g_duplex_requested ? 1UL : 0UL); /* Duplex */
     ap_put_be32(h + 340UL, 1UL);   /* NumCopies */
 
     /* Canonical selected-media raster. Landscape is source-rotated by printer.device. */
     ap_put_be32(h + 344UL, 0UL);   /* Orientation: bitmap already rasterized */
     ap_put_be32(h + 352UL, g_page_width_points);
     ap_put_be32(h + 356UL, g_page_height_points);
+    ap_put_be32(h + 368UL, g_duplex_mode == AP_DUPLEX_SHORT_EDGE ? 1UL : 0UL); /* Tumble */
     ap_put_be32(h + 372UL, g_page_width);
     ap_put_be32(h + 376UL, g_page_height);
     ap_put_be32(h + 384UL, 8UL);                 /* BitsPerColor */
@@ -995,9 +1102,28 @@ static void ap_build_pwg_prefix(void)
     ap_put_be32(h + 396UL, AP_PWG_COLOR_ORDER_CHUNKED);
     ap_put_be32(h + 400UL, g_color_space);
     ap_put_be32(h + 420UL, g_num_colors);        /* NumColors */
-    ap_put_be32(h + 452UL, 1UL);                 /* TotalPageCount */
-    ap_put_be32(h + 456UL, 1UL);                 /* CrossFeedTransform */
-    ap_put_be32(h + 460UL, 1UL);                 /* FeedTransform */
+    ap_put_be32(h + 452UL, g_duplex_requested ? 0UL : 1UL); /* unknown for duplex */
+    {
+        ULONG cross_feed = 1UL;
+        ULONG feed = 1UL;
+        int back_page = g_duplex_requested && (g_pwg_page_number & 1UL) == 0UL;
+        if (back_page) {
+            if (g_duplex_mode == AP_DUPLEX_LONG_EDGE) {
+                if (g_sheet_back == AP_SHEET_BACK_FLIPPED) feed = ~0UL;
+                else if (g_sheet_back == AP_SHEET_BACK_ROTATED) {
+                    cross_feed = ~0UL; feed = ~0UL;
+                }
+            } else if (g_duplex_mode == AP_DUPLEX_SHORT_EDGE) {
+                if (g_sheet_back == AP_SHEET_BACK_FLIPPED) cross_feed = ~0UL;
+                else if (g_sheet_back == AP_SHEET_BACK_MANUAL_TUMBLE) {
+                    cross_feed = ~0UL; feed = ~0UL;
+                }
+                /* Normal and Rotated both use +1/+1 for short-edge. */
+            }
+        }
+        ap_put_be32(h + 456UL, cross_feed); /* CrossFeedTransform */
+        ap_put_be32(h + 460UL, feed);       /* FeedTransform */
+    }
     ap_put_be32(h + 464UL, 0UL);                 /* ImageBoxLeft */
     ap_put_be32(h + 468UL, 0UL);                 /* ImageBoxTop */
     ap_put_be32(h + 472UL, g_page_width);   /* ImageBoxRight */
@@ -1072,23 +1198,72 @@ static ULONG ap_encode_row(const UBYTE *row, UBYTE repetition_minus_one)
     return out;
 }
 
-static LONG ap_send_blank_rows(ULONG count)
+static UWORD ap_engine_device_format(void)
+{
+    if (g_engine == AP_ENGINE_PDF) return APDEV_FORMAT_PDF;
+    if (g_engine == AP_ENGINE_POSTSCRIPT) return APDEV_FORMAT_POSTSCRIPT;
+    return APDEV_FORMAT_PWG_RASTER;
+}
+
+static void ap_abort_active_job(void)
+{
+    if (g_apdev_open) (void)ap_control(APDEV_CTL_ABORT, ap_engine_device_format());
+    g_duplex_document_open = 0;
+    g_graphics_continuation_open = 0;
+}
+
+static LONG ap_write_row_repeat(const UBYTE *row, ULONG repeat)
 {
     LONG err = PDERR_NOERR;
 
+    if (row == NULL || repeat == 0UL) return PDERR_NOERR;
+    if (g_engine == AP_ENGINE_PWG) {
+        while (repeat != 0UL) {
+            ULONG group = repeat > 256UL ? 256UL : repeat;
+            ULONG encoded = ap_encode_row(row, (UBYTE)(group - 1UL));
+            err = ap_pwrite(g_encoded_row, encoded);
+            if (err != PDERR_NOERR) return err;
+            g_rows_sent += group;
+            repeat -= group;
+        }
+        return PDERR_NOERR;
+    }
+
+    while (repeat-- != 0UL) {
+        err = ap_document_write_row(&g_document_writer, row,
+                                    g_encoded_row, g_encoded_alloc_size);
+        if (err != PDERR_NOERR) return err;
+        ++g_rows_sent;
+    }
+    return PDERR_NOERR;
+}
+
+static LONG ap_finish_current_page(void)
+{
+    LONG err;
+
+    if (g_engine == AP_ENGINE_PDF || g_engine == AP_ENGINE_POSTSCRIPT) {
+        err = ap_document_end(&g_document_writer);
+        if (err != PDERR_NOERR) {
+            ap_abort_active_job();
+            return err;
+        }
+    }
+
+    if (g_engine == AP_ENGINE_PWG && g_duplex_requested)
+        return PDERR_NOERR;
+
+    err = ap_control(APDEV_CTL_END, ap_engine_device_format());
+    if (err != PDERR_NOERR) ap_abort_active_job();
+    return err;
+}
+
+static LONG ap_send_blank_rows(ULONG count)
+{
     if (count == 0UL) return PDERR_NOERR;
     if (g_raw_row == NULL || g_encoded_row == NULL) return PDERR_BUFFERMEMORY;
     ap_memwhite(g_raw_row, g_row_bytes);
-
-    while (count != 0UL) {
-        ULONG group = count > 256UL ? 256UL : count;
-        ULONG encoded = ap_encode_row(g_raw_row, (UBYTE)(group - 1UL));
-        err = ap_pwrite(g_encoded_row, encoded);
-        if (err != PDERR_NOERR) return err;
-        g_rows_sent += group;
-        count -= group;
-    }
-    return err;
+    return ap_write_row_repeat(g_raw_row, count);
 }
 
 static LONG ap_start_raster(void)
@@ -1124,20 +1299,51 @@ static LONG ap_start_raster(void)
     }
     g_encoded_alloc_size = g_encoded_max;
 
+    /* SPECIAL_NOFORMFEED keeps the physical page/document open between
+     * PRD_DUMPRPORT calls (FinalWriter uses this for strip printing).  The
+     * row buffers are per dump and were just reallocated, but the IPP/PWG or
+     * PDF/PostScript stream and g_rows_sent must continue unchanged. */
+    if (g_graphics_continuation_open) {
+        g_graphics_continuation_open = 0;
+        g_raster_started = 1;
+        return PDERR_NOERR;
+    }
+
     g_rows_sent = 0UL;
     g_raster_started = 0;
 
-    ap_build_pwg_prefix();
-
-    err = ap_control(APDEV_CTL_BEGIN, APDEV_FORMAT_PWG_RASTER);
-    if (err != PDERR_NOERR) {
-        ap_release_buffer();
-        return err;
+    if (g_engine == AP_ENGINE_PWG) {
+        ++g_pwg_page_number;
+        ap_build_pwg_prefix();
+        if (!g_duplex_document_open) {
+            err = ap_control(APDEV_CTL_BEGIN, APDEV_FORMAT_PWG_RASTER);
+            if (err != PDERR_NOERR) {
+                ap_release_buffer();
+                return err;
+            }
+            if (g_duplex_requested) g_duplex_document_open = 1;
+            err = ap_pwrite(g_pwg_prefix, AP_PWG_PREFIX_SIZE);
+        } else {
+            /* A multi-page PWG file has one RaS2 sync word, then one page
+             * header per page. */
+            err = ap_pwrite(g_pwg_prefix + 4UL, AP_PWG_HEADER_SIZE);
+        }
+    } else {
+        UWORD device_format = ap_engine_device_format();
+        UWORD doc_format = g_engine == AP_ENGINE_PDF
+            ? AP_DOCUMENT_PDF : AP_DOCUMENT_POSTSCRIPT;
+        err = ap_control(APDEV_CTL_BEGIN, device_format);
+        if (err == PDERR_NOERR) {
+            err = ap_document_begin(&g_document_writer, doc_format,
+                                    (UWORD)g_num_colors,
+                                    g_page_width, g_page_height,
+                                    g_page_width_points, g_page_height_points,
+                                    ap_pwrite);
+        }
     }
 
-    err = ap_pwrite(g_pwg_prefix, AP_PWG_PREFIX_SIZE);
     if (err != PDERR_NOERR) {
-        (void)ap_control(APDEV_CTL_ABORT, APDEV_FORMAT_PWG_RASTER);
+        ap_abort_active_job();
         ap_release_buffer();
         return err;
     }
@@ -1176,8 +1382,11 @@ static void ap_text_clear_line(void)
 
 static void ap_text_update_geometry(void)
 {
-    UWORD cell_width = 60U;   /* PICA = 10 cpi at 600 dpi */
-    UWORD line_height = 100U; /* SIX_LPI at 600 dpi */
+    UWORD cell_width;
+    UWORD line_height;
+    UWORD left_edge;
+    UWORD top_edge;
+    UWORD bottom_edge;
     ULONG usable_width;
     ULONG usable_height;
     ULONG physical_columns;
@@ -1186,18 +1395,25 @@ static void ap_text_update_geometry(void)
     UWORD left = 1U;
     UWORD right;
 
+    cell_width = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 5UL, 10U);
+    line_height = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 3UL, 6U);
     if (AP_PD != NULL) {
         if (AP_PD->pd_Preferences.PrintPitch == ELITE)
-            cell_width = 50U;       /* 12 cpi */
+            cell_width = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 6UL, 12U);
         else if (AP_PD->pd_Preferences.PrintPitch == FINE)
-            cell_width = 35U;       /* classic Fine is approximately 17 cpi */
-
+            cell_width = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 8UL, 17U);
         if (AP_PD->pd_Preferences.PrintSpacing == EIGHT_LPI)
-            line_height = 75U;
+            line_height = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 4UL, 8U);
     }
+    if (cell_width == 0U) cell_width = 1U;
+    if (line_height == 0U) line_height = 1U;
 
-    usable_width = g_page_width > AP_TEXT_LEFT_EDGE
-        ? g_page_width - AP_TEXT_LEFT_EDGE : 1UL;
+    left_edge = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 5UL, 10U);
+    top_edge = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 3UL, 6U);
+    bottom_edge = top_edge;
+
+    usable_width = g_page_width > (ULONG)left_edge
+        ? g_page_width - (ULONG)left_edge : 1UL;
     physical_columns = ap_udiv_small(usable_width, cell_width);
     if (physical_columns == 0UL) physical_columns = 1UL;
     if (physical_columns > (ULONG)AP_TEXT_MAX_COLUMNS)
@@ -1207,26 +1423,22 @@ static void ap_text_update_geometry(void)
     if (AP_PD != NULL) {
         ULONG pref_left = (ULONG)AP_PD->pd_Preferences.PrintLeftMargin;
         ULONG pref_right = (ULONG)AP_PD->pd_Preferences.PrintRightMargin;
-
-        if (pref_left >= 1UL && pref_left <= physical_columns)
-            left = (UWORD)pref_left;
-        if (pref_right >= (ULONG)left && pref_right <= physical_columns)
-            right = (UWORD)pref_right;
+        if (pref_left >= 1UL && pref_left <= physical_columns) left = (UWORD)pref_left;
+        if (pref_right >= (ULONG)left && pref_right <= physical_columns) right = (UWORD)pref_right;
     }
     if (right < left) right = left;
 
     usable_height = g_page_height;
-    if (usable_height > AP_TEXT_TOP_EDGE + AP_TEXT_BOTTOM_EDGE)
-        usable_height -= AP_TEXT_TOP_EDGE + AP_TEXT_BOTTOM_EDGE;
+    if (usable_height > (ULONG)top_edge + (ULONG)bottom_edge)
+        usable_height -= (ULONG)top_edge + (ULONG)bottom_edge;
     physical_lines = ap_udiv_small(usable_height, line_height);
     if (physical_lines == 0UL) physical_lines = 1UL;
     if (physical_lines > 999UL) physical_lines = 999UL;
 
     requested_lines = physical_lines;
     if (AP_PD != NULL && AP_PD->pd_Preferences.PaperLength != 0U &&
-        (ULONG)AP_PD->pd_Preferences.PaperLength < requested_lines) {
+        (ULONG)AP_PD->pd_Preferences.PaperLength < requested_lines)
         requested_lines = (ULONG)AP_PD->pd_Preferences.PaperLength;
-    }
     if (requested_lines == 0UL) requested_lines = 1UL;
 
     g_text_max_columns = (UWORD)physical_columns;
@@ -1234,11 +1446,18 @@ static void ap_text_update_geometry(void)
     g_text_right_margin = right;
     g_text_cell_width = cell_width;
     g_text_line_height = line_height;
-    g_text_glyph_scale_x = cell_width >= 60U ? 6U :
-                           (cell_width >= 50U ? 5U : 4U);
-    g_text_glyph_scale_y = line_height >= 100U ? 10U : 7U;
+    if (AP_PD != NULL && AP_PD->pd_Preferences.PrintPitch == ELITE)
+        g_text_glyph_scale_x = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 60UL, 120U);
+    else if (AP_PD != NULL && AP_PD->pd_Preferences.PrintPitch == FINE)
+        g_text_glyph_scale_x = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 75UL, 150U);
+    else
+        g_text_glyph_scale_x = (UWORD)ap_udiv_small((ULONG)g_output_dpi + 50UL, 100U);
+    if (g_text_glyph_scale_x == 0U) g_text_glyph_scale_x = 1U;
+    g_text_glyph_scale_y = AP_PD != NULL && AP_PD->pd_Preferences.PrintSpacing == EIGHT_LPI
+        ? (UWORD)ap_udiv_small((ULONG)g_output_dpi + 40UL, 80U)
+        : (UWORD)ap_udiv_small((ULONG)g_output_dpi + 30UL, 60U);
+    if (g_text_glyph_scale_y == 0U) g_text_glyph_scale_y = 1U;
     g_text_lines_per_page = (UWORD)requested_lines;
-
     AP_PEDData.ped_MaxColumns = (UBYTE)g_text_max_columns;
 }
 
@@ -1277,15 +1496,8 @@ static void ap_text_set_black(ULONG x, ULONG width)
 
 static LONG ap_text_send_row(ULONG repeat)
 {
-    ULONG encoded;
-    LONG err;
-
     if (repeat == 0UL) return PDERR_NOERR;
-    if (repeat > 256UL) repeat = 256UL;
-    encoded = ap_encode_row(g_raw_row, (UBYTE)(repeat - 1UL));
-    err = ap_pwrite(g_encoded_row, encoded);
-    if (err == PDERR_NOERR) g_rows_sent += repeat;
-    return err;
+    return ap_write_row_repeat(g_raw_row, repeat);
 }
 
 static void ap_text_build_glyph_row(UWORD font_row)
@@ -1314,7 +1526,7 @@ static void ap_text_build_glyph_row(UWORD font_row)
         glyph = ap_font8x8_glyph(c);
         bits = glyph[font_row & 7U];
         glyph_width = (ULONG)g_text_glyph_scale_x << 3;
-        cell_x = AP_TEXT_LEFT_EDGE +
+        cell_x = ap_udiv_small((ULONG)g_output_dpi + 5UL, 10U) +
                  ap_mul_small((ULONG)(column - 1U), g_text_cell_width);
         glyph_x = cell_x;
         if ((ULONG)g_text_cell_width > glyph_width)
@@ -1345,6 +1557,7 @@ static LONG ap_text_ensure_page(void)
 {
     LONG err;
     ULONG top;
+    int continuing_graphics = g_graphics_continuation_open;
 
     if (g_raster_started) return PDERR_NOERR;
 
@@ -1354,11 +1567,14 @@ static LONG ap_text_ensure_page(void)
         return err;
     }
 
-    top = AP_TEXT_TOP_EDGE;
+    /* When text follows a SPECIAL_NOFORMFEED graphics strip, continue at the
+     * current raster position rather than inserting a second top margin. */
+    top = continuing_graphics ? 0UL :
+          ap_udiv_small((ULONG)g_output_dpi + 3UL, 6U);
     if (top > g_page_height) top = g_page_height;
     err = ap_send_blank_rows(top);
     if (err != PDERR_NOERR) {
-        (void)ap_control(APDEV_CTL_ABORT, APDEV_FORMAT_PWG_RASTER);
+        ap_abort_active_job();
         ap_release_buffer();
         g_text_error = err;
         return err;
@@ -1402,7 +1618,7 @@ static LONG ap_text_send_line(void)
     return PDERR_NOERR;
 
 fail:
-    (void)ap_control(APDEV_CTL_ABORT, APDEV_FORMAT_PWG_RASTER);
+    ap_abort_active_job();
     ap_release_buffer();
     g_text_error = err;
     return err;
@@ -1414,7 +1630,7 @@ static LONG ap_text_finish_page(int force_blank)
 
     if (g_text_error != PDERR_NOERR) {
         if (g_raster_started) {
-            (void)ap_control(APDEV_CTL_ABORT, APDEV_FORMAT_PWG_RASTER);
+            ap_abort_active_job();
             ap_release_buffer();
         }
         return g_text_error;
@@ -1426,7 +1642,14 @@ static LONG ap_text_finish_page(int force_blank)
     }
 
     if (!g_raster_started) {
-        if (!force_blank && !g_text_page_touched) return PDERR_NOERR;
+        /* SPECIAL_NOFORMFEED leaves a graphics page deliberately open after
+         * PRS_CLOSE.  A later form feed/reset is the application's explicit
+         * request to eject that physical page even when no alphanumeric text
+         * was added in between.  Do not mistake the lack of text for an empty
+         * page: ap_text_ensure_page() will resume the existing graphics stream
+         * at g_rows_sent, not start a new page. */
+        if (!force_blank && !g_text_page_touched &&
+            !g_graphics_continuation_open) return PDERR_NOERR;
         err = ap_text_ensure_page();
         if (err != PDERR_NOERR) return err;
     }
@@ -1434,18 +1657,15 @@ static LONG ap_text_finish_page(int force_blank)
     if (g_rows_sent < g_page_height) {
         err = ap_send_blank_rows(g_page_height - g_rows_sent);
         if (err != PDERR_NOERR) {
-            (void)ap_control(APDEV_CTL_ABORT, APDEV_FORMAT_PWG_RASTER);
+            ap_abort_active_job();
             ap_release_buffer();
             g_text_error = err;
             return err;
         }
     }
 
-    err = ap_control(APDEV_CTL_END, APDEV_FORMAT_PWG_RASTER);
-    if (err != PDERR_NOERR) {
-        (void)ap_control(APDEV_CTL_ABORT, APDEV_FORMAT_PWG_RASTER);
-        g_text_error = err;
-    }
+    err = ap_finish_current_page();
+    if (err != PDERR_NOERR) g_text_error = err;
     ap_release_buffer();
 
     g_text_line_on_page = 0U;
@@ -1531,8 +1751,14 @@ LONG AP_ConvFuncC(APTR output_buffer, LONG c, LONG crlf_flag)
             (void)ap_text_advance_line(0);
             break;
         case 12U: /* FF */
-            (void)ap_text_finish_page(g_raster_started || g_text_page_touched ||
-                                     g_text_line_has_data ? 0 : 1);
+            /* A page-oriented driver only has something to eject when data is
+             * pending.  Do not synthesize blank IPP jobs for redundant form
+             * feeds; some word processors emit more than one during teardown. */
+            if (g_raster_started || g_graphics_continuation_open ||
+                g_text_page_touched || g_text_line_has_data)
+                (void)ap_text_finish_page(0);
+            else
+                AP_PEDData.ped_PrintMode = 0L;
             break;
         case 13U: /* CR */
             g_text_column = g_text_left_margin;
@@ -1686,18 +1912,13 @@ static void ap_build_output_row(struct PrtInfo *pinfo)
     ULONG dest;
     ULONG row_width;
     ULONG scaled_row_width;
+    ULONG dpi_accum;
     UWORD horizontal_accum = 99U;
     UBYTE *pixel;
 
     ap_memwhite(g_raw_row, g_row_bytes);
     if (pinfo == NULL || pinfo->pi_ColorInt == NULL || pinfo->pi_ScaleX == NULL) return;
 
-    /*
-     * pi_ScaleX is the authoritative horizontal geometry for this rendered
-     * row.  In ASPECT_VERT landscape printer.device can round that geometry
-     * by a few pixels differently from the nominal Case-0 width.  Centering
-     * from the real row width therefore avoids a visible short-edge offset.
-     */
     row_width = 0UL;
     scale = pinfo->pi_ScaleX;
     for (source = 0UL; source < (ULONG)pinfo->pi_width; ++source)
@@ -1714,13 +1935,13 @@ static void ap_build_output_row(struct PrtInfo *pinfo)
     if (dest >= g_page_width) return;
 
     pixel = g_raw_row;
-    if (g_bytes_per_pixel == 1UL) {
-        pixel += dest;
-    } else {
+    if (g_bytes_per_pixel == 1UL) pixel += dest;
+    else {
         ULONG skip = dest;
         while (skip-- != 0UL) pixel += 3;
     }
 
+    dpi_accum = g_frontend_dpi > 0U ? (ULONG)g_frontend_dpi - 1UL : 0UL;
     for (source = 0UL; source < (ULONG)pinfo->pi_width; ++source) {
         ULONG repeats = (ULONG)*scale++;
         UBYTE blue = colors[source].colorByte[PCMBLUE];
@@ -1734,18 +1955,16 @@ static void ap_build_output_row(struct PrtInfo *pinfo)
         white = white >= 15U ? 255U : (UBYTE)(((UWORD)white << 4) | white);
 
         while (repeats-- != 0UL && dest < g_page_width) {
-            UWORD copies = g_frontend_scale;
-            while (copies-- != 0U && dest < g_page_width) {
+            ULONG copies;
+            dpi_accum += (ULONG)g_output_dpi;
+            copies = ap_udiv_small(dpi_accum, g_frontend_dpi);
+            dpi_accum -= ap_mul_small(copies, g_frontend_dpi);
+            while (copies-- != 0UL && dest < g_page_width) {
                 horizontal_accum = (UWORD)(horizontal_accum + g_job_scale_percent);
                 if (horizontal_accum >= 100U) {
                     horizontal_accum = (UWORD)(horizontal_accum - 100U);
-                    if (g_bytes_per_pixel == 1UL) {
-                        pixel[0] = white;
-                    } else {
-                        pixel[0] = red;
-                        pixel[1] = green;
-                        pixel[2] = blue;
-                    }
+                    if (g_bytes_per_pixel == 1UL) pixel[0] = white;
+                    else { pixel[0] = red; pixel[1] = green; pixel[2] = blue; }
                     pixel = ap_next_pixel(pixel);
                     ++dest;
                 }
@@ -1767,29 +1986,37 @@ LONG AP_Render(LONG ct, LONG x, LONG y, LONG status)
                 if (err != PDERR_NOERR) return err;
             }
 
-            /* Apply selected media first, then expose the documented logical
-             * density to printer.device before it computes dump geometry. */
-            ap_apply_page_prefs();
+            /* Apply selected media only when starting a new physical page.
+             * A SPECIAL_NOFORMFEED continuation must retain the exact engine,
+             * media and page geometry of the preceding strip. */
+            if (!g_graphics_continuation_open) ap_apply_page_prefs();
             ap_set_graphics_density((UWORD)x);
             (void)ct;
             break;
 
         case 0: /* PRS_INIT */
+        {
+            int continuing = g_graphics_continuation_open;
+            int no_formfeed = 0;
+            struct IODRPReq *request = (struct IODRPReq *)ct;
+
+            if (request != NULL &&
+                (request->io_Special & SPECIAL_NOFORMFEED) != 0U)
+                no_formfeed = 1;
+
             if (g_page_width == 0UL) ap_apply_page_prefs();
             g_picture_width = x > 0 ? (ULONG)x : 0UL;
             g_picture_height = y > 0 ? (ULONG)y : 0UL;
-            g_job_scale_percent = g_scale_percent;
+            if (!continuing) g_job_scale_percent = g_scale_percent;
 
             /* Keep the logical-density geometry visible for the duration of
-             * this dump; PWG output itself remains fixed at 600 dpi. */
+             * this dump; PWG output itself remains fixed at the selected dpi. */
             AP_PEDData.ped_MaxXDots = g_frontend_page_width;
             AP_PEDData.ped_MaxYDots = g_frontend_page_height;
 
-            /* printer.device renders at the logical density selected in
-             * PREINIT. Fit defensively if a caller still hands us a raster
-             * larger than the physical PWG page. */
-            if (ap_frontend_to_pwg(g_picture_width) > g_page_width ||
-                ap_frontend_to_pwg(g_picture_height) > g_page_height) {
+            if (!continuing &&
+                (ap_frontend_to_pwg(g_picture_width) > g_page_width ||
+                 ap_frontend_to_pwg(g_picture_height) > g_page_height)) {
                 UWORD fit = ap_job_fit_percent(ap_frontend_to_pwg(g_picture_width),
                                                ap_frontend_to_pwg(g_picture_height));
                 ULONG combined = ap_udiv_small(ap_mul_small((ULONG)g_scale_percent, fit), 100U);
@@ -1802,25 +2029,45 @@ LONG AP_Render(LONG ct, LONG x, LONG y, LONG status)
             g_scaled_picture_height = ap_scale_dimension(ap_frontend_to_pwg(g_picture_height));
             if (g_scaled_picture_width > g_page_width) g_scaled_picture_width = g_page_width;
             if (g_scaled_picture_height > g_page_height) g_scaled_picture_height = g_page_height;
-            g_top_padding = (g_center_on_paper && g_scaled_picture_height < g_page_height)
+
+            /* Vertical centering applies to a complete dump, never to one
+             * strip of a striped page.  The first strip advertises
+             * SPECIAL_NOFORMFEED; later strips are recognized by continuing. */
+            g_top_padding = (!continuing && !no_formfeed && g_center_on_paper &&
+                             g_scaled_picture_height < g_page_height)
                 ? ((g_page_height - g_scaled_picture_height) >> 1) : 0UL;
-            g_vertical_scale_accum = 99U;
+
+            if (!continuing) {
+                g_vertical_dpi_accum = g_frontend_dpi > 0U
+                    ? (ULONG)g_frontend_dpi - 1UL : 0UL;
+                g_vertical_scale_accum = 99U;
+            }
             g_emit_current_rows = 0U;
             err = ap_start_raster();
             if (err == PDERR_NOERR && g_top_padding != 0UL)
                 err = ap_send_blank_rows(g_top_padding);
             break;
+        }
 
         case 1: /* PRS_TRANSFER */
             if (g_raw_row == NULL) return PDERR_BUFFERMEMORY;
             (void)y;
             {
-                ULONG accum = (ULONG)g_vertical_scale_accum +
-                              ap_mul_small((ULONG)g_job_scale_percent, g_frontend_scale);
-                ULONG emit = ap_udiv_small(accum, 100U);
-                g_emit_current_rows = (UWORD)emit;
-                g_vertical_scale_accum =
-                    (UWORD)(accum - ap_mul_small(emit, 100U));
+                ULONG base_emit;
+                ULONG emit = 0UL;
+                g_vertical_dpi_accum += (ULONG)g_output_dpi;
+                base_emit = ap_udiv_small(g_vertical_dpi_accum, g_frontend_dpi);
+                g_vertical_dpi_accum -= ap_mul_small(base_emit, g_frontend_dpi);
+                while (base_emit-- != 0UL) {
+                    ULONG scale_accum = (ULONG)g_vertical_scale_accum +
+                                        (ULONG)g_job_scale_percent;
+                    if (scale_accum >= 100UL) {
+                        ++emit;
+                        scale_accum -= 100UL;
+                    }
+                    g_vertical_scale_accum = (UWORD)scale_accum;
+                }
+                g_emit_current_rows = emit > 65535UL ? 65535U : (UWORD)emit;
             }
             if (g_emit_current_rows != 0U)
                 ap_build_output_row((struct PrtInfo *)ct);
@@ -1832,12 +2079,9 @@ LONG AP_Render(LONG ct, LONG x, LONG y, LONG status)
             (void)y;
             if (g_emit_current_rows != 0U && g_rows_sent < g_page_height) {
                 ULONG copies = (ULONG)g_emit_current_rows;
-                ULONG encoded = ap_encode_row(g_raw_row, 0U);
-                while (copies-- != 0UL && g_rows_sent < g_page_height) {
-                    err = ap_pwrite(g_encoded_row, encoded);
-                    if (err != PDERR_NOERR) break;
-                    ++g_rows_sent;
-                }
+                if (copies > g_page_height - g_rows_sent)
+                    copies = g_page_height - g_rows_sent;
+                err = ap_write_row_repeat(g_raw_row, copies);
             }
             break;
 
@@ -1851,21 +2095,27 @@ LONG AP_Render(LONG ct, LONG x, LONG y, LONG status)
                 break;
             }
 
-            /* The classic Case-4 contract only defines PDERR_CANCEL as an
-             * aborted dump. Other close status values still require normal
-             * page completion. */
             if (ct == PDERR_CANCEL) {
-                (void)ap_control(APDEV_CTL_ABORT, APDEV_FORMAT_PWG_RASTER);
+                ap_abort_active_job();
                 ap_release_buffer();
                 break;
             }
 
-            if (g_rows_sent < g_page_height) {
+            /* SPECIAL_NOFORMFEED explicitly means that this graphics dump is
+             * not the end of the physical page.  FinalWriter Graphics (Final)
+             * uses this for horizontal strip printing.  Keep the document
+             * stream and current raster row position open, but release the
+             * per-dump row buffers before printer.device starts the next strip. */
+            if ((((UWORD)x) & SPECIAL_NOFORMFEED) != 0U) {
+                g_graphics_continuation_open = 1;
+                ap_release_buffer();
+                break;
+            }
+
+            if (g_rows_sent < g_page_height)
                 err = ap_send_blank_rows(g_page_height - g_rows_sent);
-            }
-            if (err == PDERR_NOERR) {
-                err = ap_control(APDEV_CTL_END, APDEV_FORMAT_PWG_RASTER);
-            }
+            if (err == PDERR_NOERR) err = ap_finish_current_page();
+            g_graphics_continuation_open = 0;
             ap_release_buffer();
             break;
 

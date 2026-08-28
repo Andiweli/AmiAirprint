@@ -52,8 +52,16 @@ struct APDPreferences {
     char color[APD_VALUE_LEN];
     UWORD quality;
     char media[APD_VALUE_LEN];
+    char media_source[APD_VALUE_LEN];
+    char sides[APD_VALUE_LEN];
+    UWORD resolution_x;
+    UWORD resolution_y;
+    UBYTE resolution_units;
     char orientation[APD_VALUE_LEN];
     UWORD landscape_orientation_preferred;
+    UBYTE http_no_expect_required;
+    UWORD http_expect_reject_status;
+    UBYTE http_postbody_500_ok;
 };
 
 /*
@@ -172,8 +180,16 @@ static void apd_prefs_defaults(struct APDPreferences *prefs)
     apd_copy(prefs->path, sizeof(prefs->path), "/ipp/print");
     apd_copy(prefs->color, sizeof(prefs->color), "color");
     apd_copy(prefs->media, sizeof(prefs->media), "iso_a4_210x297mm");
+    prefs->media_source[0] = '\0';
+    apd_copy(prefs->sides, sizeof(prefs->sides), "one-sided");
+    prefs->resolution_x = 0U;
+    prefs->resolution_y = 0U;
+    prefs->resolution_units = 3U;
     apd_copy(prefs->orientation, sizeof(prefs->orientation), "portrait");
     prefs->landscape_orientation_preferred = 0U;
+    prefs->http_no_expect_required = 0U;
+    prefs->http_expect_reject_status = 0U;
+    prefs->http_postbody_500_ok = 0U;
 }
 
 static void apd_parse_pref_line(struct APDPreferences *prefs, char *line)
@@ -204,6 +220,40 @@ static void apd_parse_pref_line(struct APDPreferences *prefs, char *line)
         if (quality >= 3U && quality <= 5U) prefs->quality = (UWORD)quality;
     } else if (apd_streq(line, "MEDIA")) {
         apd_copy(prefs->media, sizeof(prefs->media), value);
+    } else if (apd_streq(line, "MEDIA_SOURCE")) {
+        apd_copy(prefs->media_source, sizeof(prefs->media_source), value);
+    } else if (apd_streq(line, "SIDES")) {
+        if (apd_streq(value, "two-sided-long-edge") ||
+            apd_streq(value, "two-sided-short-edge"))
+            apd_copy(prefs->sides, sizeof(prefs->sides), value);
+        else
+            apd_copy(prefs->sides, sizeof(prefs->sides), "one-sided");
+    } else if (apd_streq(line, "RESOLUTION")) {
+        const char *q;
+        ULONG x;
+        ULONG y;
+        ULONG units;
+        char number[16];
+        ULONG n;
+
+        q = value;
+        n = 0U;
+        while (*q >= '0' && *q <= '9' && n + 1U < sizeof(number)) number[n++] = *q++;
+        number[n] = '\0';
+        x = apd_parse_ulong(number, 0U);
+        if (*q == ',') ++q; else x = 0U;
+        n = 0U;
+        while (*q >= '0' && *q <= '9' && n + 1U < sizeof(number)) number[n++] = *q++;
+        number[n] = '\0';
+        y = apd_parse_ulong(number, 0U);
+        if (*q == ',') ++q; else y = 0U;
+        units = apd_parse_ulong(q, 3U);
+        if (x > 0U && x <= 65535U && y > 0U && y <= 65535U &&
+            (units == 3U || units == 4U)) {
+            prefs->resolution_x = (UWORD)x;
+            prefs->resolution_y = (UWORD)y;
+            prefs->resolution_units = (UBYTE)units;
+        }
     } else if (apd_streq(line, "ORIENTATION")) {
         if (apd_streq(value, "landscape"))
             apd_copy(prefs->orientation, sizeof(prefs->orientation), "landscape");
@@ -214,6 +264,14 @@ static void apd_parse_pref_line(struct APDPreferences *prefs, char *line)
         orientation = apd_parse_ulong(value, 0U);
         if (orientation == 4U || orientation == 5U)
             prefs->landscape_orientation_preferred = (UWORD)orientation;
+    } else if (apd_streq(line, "CAP_HTTP_NO_EXPECT")) {
+        prefs->http_no_expect_required = apd_parse_ulong(value, 0U) != 0U ? 1U : 0U;
+    } else if (apd_streq(line, "CAP_HTTP_EXPECT_REJECT_STATUS")) {
+        ULONG status;
+        status = apd_parse_ulong(value, 0U);
+        prefs->http_expect_reject_status = status <= 65535U ? (UWORD)status : 0U;
+    } else if (apd_streq(line, "CAP_HTTP_POSTBODY_500_OK")) {
+        prefs->http_postbody_500_ok = apd_parse_ulong(value, 0U) != 0U ? 1U : 0U;
     }
 }
 
@@ -537,6 +595,21 @@ static int apd_put_attr_u32(UBYTE **cursor, UBYTE *end, UBYTE tag, const char *n
            apd_put_u32(cursor, end, value);
 }
 
+static int apd_put_attr_resolution(UBYTE **cursor, UBYTE *end, const char *name,
+                                   UWORD x, UWORD y, UBYTE units)
+{
+    ULONG name_len;
+    name_len = apd_strlen(name);
+    if (name_len > 65535U) return 0;
+    return apd_put_u8(cursor, end, 0x32U) &&
+           apd_put_u16(cursor, end, (UWORD)name_len) &&
+           apd_put_bytes(cursor, end, (const UBYTE *)name, name_len) &&
+           apd_put_u16(cursor, end, 9U) &&
+           apd_put_u32(cursor, end, (ULONG)x) &&
+           apd_put_u32(cursor, end, (ULONG)y) &&
+           apd_put_u8(cursor, end, units != 0U ? units : 3U);
+}
+
 static int apd_build_ipp(const struct APDPreferences *prefs,
                          const char *mime,
                          UBYTE *buffer,
@@ -560,8 +633,8 @@ static int apd_build_ipp(const struct APDPreferences *prefs,
 
     cursor = buffer;
     end = buffer + capacity;
-    if (!apd_put_u8(&cursor, end, 2U) ||
-        !apd_put_u8(&cursor, end, 0U) ||
+    if (!apd_put_u8(&cursor, end, prefs->http_no_expect_required ? 1U : 2U) ||
+        !apd_put_u8(&cursor, end, prefs->http_no_expect_required ? 1U : 0U) ||
         !apd_put_u16(&cursor, end, 0x0002U) ||
         !apd_put_u32(&cursor, end, 2U) ||
         !apd_put_u8(&cursor, end, 0x01U) ||
@@ -570,23 +643,42 @@ static int apd_build_ipp(const struct APDPreferences *prefs,
         !apd_put_attr(&cursor, end, 0x45U, "printer-uri", uri) ||
         !apd_put_attr(&cursor, end, 0x42U, "requesting-user-name", "AmigaOS") ||
         !apd_put_attr(&cursor, end, 0x42U, "job-name", "AmigaOS AirPrint Job") ||
-        !apd_put_attr(&cursor, end, 0x49U, "document-format", mime) ||
-        !apd_put_u8(&cursor, end, 0x02U) ||
-        !apd_put_attr(&cursor, end, 0x44U, "print-color-mode", prefs->color) ||
-        !apd_put_attr_u32(&cursor, end, 0x23U, "print-quality", prefs->quality) ||
-        !apd_put_attr(&cursor, end, 0x44U, "media", prefs->media)) return 0;
+        !apd_put_attr(&cursor, end, 0x49U, "document-format", mime)) return 0;
 
-    /* PWG Raster carries its physical orientation in the page geometry. */
-    if (!apd_streq(mime, "image/pwg-raster")) {
-        ULONG orientation;
-        orientation = 3U;
-        if (apd_streq(prefs->orientation, "landscape")) {
-            orientation = (prefs->landscape_orientation_preferred == 4U ||
-                           prefs->landscape_orientation_preferred == 5U)
-                ? prefs->landscape_orientation_preferred : 4U;
+    if (!prefs->http_no_expect_required) {
+        if (!apd_put_u8(&cursor, end, 0x02U) ||
+            !apd_put_attr(&cursor, end, 0x44U, "print-color-mode", prefs->color) ||
+            !apd_put_attr_u32(&cursor, end, 0x23U, "print-quality", prefs->quality) ||
+            !apd_put_attr(&cursor, end, 0x44U, "media", prefs->media)) return 0;
+
+        if (prefs->media_source[0] != '\0' &&
+            !apd_put_attr(&cursor, end, 0x44U, "media-source", prefs->media_source))
+            return 0;
+
+        /* Duplex is implemented only for multi-page PWG Raster jobs. */
+        if (apd_streq(mime, "image/pwg-raster") && prefs->sides[0] != '\0' &&
+            !apd_put_attr(&cursor, end, 0x44U, "sides", prefs->sides))
+            return 0;
+
+        if (apd_streq(mime, "image/pwg-raster") &&
+            prefs->resolution_x != 0U && prefs->resolution_y != 0U &&
+            !apd_put_attr_resolution(&cursor, end, "printer-resolution",
+                                     prefs->resolution_x, prefs->resolution_y,
+                                     prefs->resolution_units))
+            return 0;
+
+        /* Raster/PDF/PostScript carry physical orientation in their page geometry. */
+        if (apd_streq(mime, "image/jpeg") || apd_streq(mime, "image/urf")) {
+            ULONG orientation;
+            orientation = 3U;
+            if (apd_streq(prefs->orientation, "landscape")) {
+                orientation = (prefs->landscape_orientation_preferred == 4U ||
+                               prefs->landscape_orientation_preferred == 5U)
+                    ? prefs->landscape_orientation_preferred : 4U;
+            }
+            if (!apd_put_attr_u32(&cursor, end, 0x23U,
+                                  "orientation-requested", orientation)) return 0;
         }
-        if (!apd_put_attr_u32(&cursor, end, 0x23U,
-                              "orientation-requested", orientation)) return 0;
     }
 
     if (!apd_put_u8(&cursor, end, 0x03U)) return 0;
@@ -713,6 +805,7 @@ static int apd_submit_job(void)
     UWORD ipp_status;
     int ok;
     int result;
+    int use_expect;
 
     if (!g_job_active || g_job_size == 0U) return 0;
 
@@ -722,6 +815,7 @@ static int apd_submit_job(void)
 
     sock = -1;
     result = 0;
+    use_expect = 1;
     g_last_socket_errno = 0;
     g_last_http_status = 0;
     g_last_ipp_status = 0xFFFFU;
@@ -729,10 +823,13 @@ static int apd_submit_job(void)
     g_last_stage = APDEV_STAGE_PREFS;
 
     if (!apd_load_prefs(&workspace->prefs)) goto cleanup;
+    if (workspace->prefs.http_no_expect_required) use_expect = 0;
 
     if (g_job_format == APDEV_FORMAT_JPEG) mime = "image/jpeg";
     else if (g_job_format == APDEV_FORMAT_URF) mime = "image/urf";
     else if (g_job_format == APDEV_FORMAT_PWG_RASTER) mime = "image/pwg-raster";
+    else if (g_job_format == APDEV_FORMAT_PDF) mime = "application/pdf";
+    else if (g_job_format == APDEV_FORMAT_POSTSCRIPT) mime = "application/postscript";
     else goto cleanup;
 
     if (!apd_build_ipp(&workspace->prefs, mime,
@@ -740,7 +837,6 @@ static int apd_submit_job(void)
                        workspace->uri, (ULONG)sizeof(workspace->uri),
                        &ipp_len)) goto cleanup;
 
-    g_last_stage = APDEV_STAGE_CONNECT;
     SocketBase = (struct Library *)OpenLibrary((CONST_STRPTR)"bsdsocket.library", 4L);
     if (SocketBase == NULL) goto cleanup;
 
@@ -749,68 +845,115 @@ static int apd_submit_job(void)
     address.sin_port = htons(workspace->prefs.port);
     if (!apd_parse_ipv4(workspace->prefs.host, &address.sin_addr)) goto cleanup;
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        g_last_socket_errno = Errno();
-        goto cleanup;
-    }
-    if (connect(sock, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        g_last_socket_errno = Errno();
-        goto cleanup;
-    }
+    for (;;) {
+        g_last_stage = APDEV_STAGE_CONNECT;
+        g_last_socket_errno = 0;
+        g_last_http_status = 0;
 
-    http_len = 0U;
-    workspace->http[0] = '\0';
-    ok = apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, "POST ") &&
-         apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, workspace->prefs.path) &&
-         apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, " HTTP/1.1\r\nHost: ") &&
-         apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, workspace->prefs.host) &&
-         apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, ":") &&
-         apd_append_ulong(workspace->http, (ULONG)sizeof(workspace->http), &http_len, workspace->prefs.port) &&
-         apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len,
-                    "\r\nUser-Agent: airprint.device/" AMIAIRPRINT_CORE_VERSION_TEXT " AmigaOS\r\n"
-                    "Content-Type: application/ipp\r\n"
-                    "Accept: application/ipp\r\nContent-Length: ") &&
-         apd_append_ulong(workspace->http, (ULONG)sizeof(workspace->http), &http_len, ipp_len + g_job_size) &&
-         apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len,
-                    "\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n");
+        sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock < 0) {
+            g_last_socket_errno = Errno();
+            goto cleanup;
+        }
+        if (connect(sock, (struct sockaddr *)&address, sizeof(address)) < 0) {
+            g_last_socket_errno = Errno();
+            goto cleanup;
+        }
 
-    if (!ok || !apd_send_all(sock, (const UBYTE *)workspace->http, http_len)) {
-        g_last_socket_errno = Errno();
-        goto cleanup;
+        http_len = 0U;
+        workspace->http[0] = '\0';
+        ok = apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, "POST ") &&
+             apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, workspace->prefs.path) &&
+             apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, " HTTP/1.1\r\nHost: ") &&
+             apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, workspace->prefs.host) &&
+             apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len, ":") &&
+             apd_append_ulong(workspace->http, (ULONG)sizeof(workspace->http), &http_len, workspace->prefs.port) &&
+             apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len,
+                        "\r\nUser-Agent: airprint.device/" AMIAIRPRINT_CORE_VERSION_TEXT " AmigaOS\r\n"
+                        "Content-Type: application/ipp\r\n"
+                        "Accept: application/ipp\r\nContent-Length: ") &&
+             apd_append_ulong(workspace->http, (ULONG)sizeof(workspace->http), &http_len, ipp_len + g_job_size);
+
+        if (ok && use_expect) {
+            ok = apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len,
+                            "\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n");
+        } else if (ok) {
+            ok = apd_append(workspace->http, (ULONG)sizeof(workspace->http), &http_len,
+                            "\r\nConnection: close\r\n\r\n");
+        }
+
+        if (!ok || !apd_send_all(sock, (const UBYTE *)workspace->http, http_len)) {
+            g_last_socket_errno = Errno();
+            goto cleanup;
+        }
+
+        if (use_expect) {
+            g_last_stage = APDEV_STAGE_CONTINUE;
+            reply_used = 0U;
+            preflight_status = -1;
+            if (!apd_recv_header(sock, workspace->reply, (ULONG)sizeof(workspace->reply),
+                                 &reply_used, &preflight_status) ||
+                preflight_status != 100) {
+                g_last_http_status = preflight_status;
+
+                /*
+                 * Compatibility fallback for embedded printer HTTP servers:
+                 * 417/500 here was received before any IPP/document bytes were
+                 * sent, so reopening the connection and retrying without
+                 * Expect: 100-continue cannot duplicate a print job.
+                 */
+                if (preflight_status == 417 || preflight_status == 500) {
+                    CloseSocket(sock);
+                    sock = -1;
+                    use_expect = 0;
+                    continue;
+                }
+
+                g_last_socket_errno = Errno();
+                goto cleanup;
+            }
+        }
+
+        g_last_stage = APDEV_STAGE_SEND;
+        if (!apd_send_all(sock, workspace->ipp, ipp_len) ||
+            !apd_send_spool_file(sock, workspace->file_buffer,
+                                 (ULONG)sizeof(workspace->file_buffer))) {
+            g_last_socket_errno = Errno();
+            goto cleanup;
+        }
+
+        g_last_stage = APDEV_STAGE_RESPONSE;
+        ipp_status = 0xFFFFU;
+        ok = apd_read_final_status(sock, workspace->reply,
+                                   (ULONG)sizeof(workspace->reply), &ipp_status);
+        g_last_ipp_status = ipp_status;
+        if (!ok) {
+            /*
+             * The full IPP header and spool file have already been sent at
+             * this point.  A retry would be unsafe.  Some embedded printer
+             * firmware that previously returned HTTP 500 to Expect also
+             * prints the complete job and then incorrectly returns HTTP 500
+             * instead of an IPP response.  Accept only that narrowly learned
+             * compatibility pattern and keep stage=response plus HTTP=500 for
+             * APDEV_CMD_GET_STATUS diagnostics.
+             */
+            if (g_last_http_status == 500 &&
+                workspace->prefs.http_no_expect_required &&
+                (workspace->prefs.http_expect_reject_status == 500U ||
+                 workspace->prefs.http_postbody_500_ok)) {
+                g_last_socket_errno = 0;
+                result = 1;
+                break;
+            }
+
+            g_last_socket_errno = Errno();
+            goto cleanup;
+        }
+
+        g_last_stage = APDEV_STAGE_DONE;
+        result = 1;
+        break;
     }
-
-    g_last_stage = APDEV_STAGE_CONTINUE;
-    reply_used = 0U;
-    preflight_status = -1;
-    if (!apd_recv_header(sock, workspace->reply, (ULONG)sizeof(workspace->reply),
-                         &reply_used, &preflight_status) ||
-        preflight_status != 100) {
-        g_last_http_status = preflight_status;
-        g_last_socket_errno = Errno();
-        goto cleanup;
-    }
-
-    g_last_stage = APDEV_STAGE_SEND;
-    if (!apd_send_all(sock, workspace->ipp, ipp_len) ||
-        !apd_send_spool_file(sock, workspace->file_buffer,
-                             (ULONG)sizeof(workspace->file_buffer))) {
-        g_last_socket_errno = Errno();
-        goto cleanup;
-    }
-
-    g_last_stage = APDEV_STAGE_RESPONSE;
-    ipp_status = 0xFFFFU;
-    ok = apd_read_final_status(sock, workspace->reply,
-                               (ULONG)sizeof(workspace->reply), &ipp_status);
-    g_last_ipp_status = ipp_status;
-    if (!ok) {
-        g_last_socket_errno = Errno();
-        goto cleanup;
-    }
-
-    g_last_stage = APDEV_STAGE_DONE;
-    result = 1;
 
 cleanup:
     if (sock >= 0 && SocketBase != NULL) CloseSocket(sock);
@@ -835,7 +978,9 @@ static int apd_is_control(const struct IOStdReq *io, struct APDeviceControl *con
         source->command != APDEV_CTL_ABORT) return 0;
     if (source->format != APDEV_FORMAT_JPEG &&
         source->format != APDEV_FORMAT_URF &&
-        source->format != APDEV_FORMAT_PWG_RASTER) return 0;
+        source->format != APDEV_FORMAT_PWG_RASTER &&
+        source->format != APDEV_FORMAT_PDF &&
+        source->format != APDEV_FORMAT_POSTSCRIPT) return 0;
     *control = *source;
     return 1;
 }
@@ -856,7 +1001,9 @@ static void apd_do_write(struct IOStdReq *io)
         if (control.command == APDEV_CTL_BEGIN) {
             if (control.format != APDEV_FORMAT_JPEG &&
                 control.format != APDEV_FORMAT_URF &&
-                control.format != APDEV_FORMAT_PWG_RASTER) {
+                control.format != APDEV_FORMAT_PWG_RASTER &&
+                control.format != APDEV_FORMAT_PDF &&
+                control.format != APDEV_FORMAT_POSTSCRIPT) {
                 io->io_Error = IOERR_BADADDRESS;
                 return;
             }

@@ -62,6 +62,8 @@ int ap_ipp_build_print_job(
     const char *color_mode,
     unsigned int print_quality,
     const char *media,
+    const char *media_source,
+    const char *sides,
     unsigned int orientation_requested,
     uint32_t resolution_x,
     uint32_t resolution_y,

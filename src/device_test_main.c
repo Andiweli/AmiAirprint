@@ -1,5 +1,6 @@
 #include "airprint_device.h"
 #include "testpage_jpeg.h"
+#include "ami_airprint_version.h"
 
 #include <exec/types.h>
 #include <exec/io.h>
@@ -70,8 +71,8 @@ int main(void)
     ULONG offset;
     int opened;
 
-    puts("AirPrintDeviceTest 0.8.3");
-    puts("Exec device -> spool -> IPP Print-Job test");
+    printf("AirPrintDeviceTest %s\n", AMIAIRPRINT_CORE_VERSION_TEXT);
+    puts("Exec device -> spool -> IPP Print-Job JPEG transport diagnostic");
     puts("");
 
     port = CreateMsgPort();
@@ -133,7 +134,23 @@ int main(void)
     control.command = APDEV_CTL_END;
     puts("Submitting spool through airprint.device...");
     if (!send_write(io, &control, (ULONG)sizeof(control))) {
+        struct APDeviceStatus status;
+        LONG status_error;
+
         show_device_status(io);
+
+        io->io_Command = APDEV_CMD_GET_STATUS;
+        io->io_Data = &status;
+        io->io_Length = sizeof(status);
+        io->io_Actual = 0;
+        status_error = DoIO((struct IORequest *)io);
+        if (status_error == 0 && status.ipp_status == 0x040AU) {
+            puts("");
+            puts("IPP 0x040A: printer does not support image/jpeg.");
+            puts("This tool is intentionally JPEG-only and the transport itself reached the printer.");
+            puts("Use the Preferences Test Page for a capability-aware PWG/PDF/PostScript test.");
+        }
+
         CloseDevice((struct IORequest *)io);
         DeleteIORequest((struct IORequest *)io);
         DeleteMsgPort(port);

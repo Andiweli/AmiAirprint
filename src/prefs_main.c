@@ -1,10 +1,11 @@
 #include "airprint_caps.h"
 #include "airprint_discovery.h"
+#include "airprint_advanced.h"
 #include "ami_airprint_brand.h"
 #include "airprint_http.h"
 #include "airprint_prefs.h"
 #include "airprint_print.h"
-#include "testpage_jpeg.h"
+#include "airprint_testpage.h"
 #include "ami_airprint_version.h"
 #include "ami_airprint_locale.h"
 
@@ -50,6 +51,7 @@ const char AmiAirPrintVersionTag[] __attribute__((used)) =
     "$VER: AmiAirPrintPrefs " AMIAIRPRINT_PREFS_VERSION_TEXT " (" AMIAIRPRINT_PREFS_VERSION_DATE ")\r\n" AMIAIRPRINT_BRAND_TEXT;
 
 struct IntuitionBase *IntuitionBase = NULL;
+struct Library *GadToolsBase = NULL;
 struct Library *WindowBase = NULL;
 struct Library *LayoutBase = NULL;
 struct Library *ButtonBase = NULL;
@@ -78,6 +80,7 @@ enum {
     GID_ORIENTATION,
     GID_SCALE,
     GID_CENTER,
+    GID_ADVANCED,
     GID_TESTPAGE,
     GID_SAVE,
     GID_CANCEL,
@@ -161,6 +164,7 @@ static int ap_gui_open_classes(void)
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 47L);
     if (IntuitionBase == NULL) return 0;
 
+    GadToolsBase = OpenLibrary((CONST_STRPTR)"gadtools.library", 39L);
     WindowBase = OpenLibrary((CONST_STRPTR)"window.class", 47L);
     LayoutBase = OpenLibrary((CONST_STRPTR)"gadgets/layout.gadget", 47L);
     ButtonBase = OpenLibrary((CONST_STRPTR)"gadgets/button.gadget", 44L);
@@ -171,7 +175,8 @@ static int ap_gui_open_classes(void)
     CheckBoxBase = OpenLibrary((CONST_STRPTR)"gadgets/checkbox.gadget", 44L);
     LabelBase = OpenLibrary((CONST_STRPTR)"images/label.image", 44L);
 
-    return WindowBase != NULL &&
+    return GadToolsBase != NULL &&
+           WindowBase != NULL &&
            LayoutBase != NULL &&
            ButtonBase != NULL &&
            StringBase != NULL &&
@@ -193,6 +198,7 @@ static void ap_gui_close_classes(void)
     if (ButtonBase != NULL) CloseLibrary(ButtonBase);
     if (LayoutBase != NULL) CloseLibrary(LayoutBase);
     if (WindowBase != NULL) CloseLibrary(WindowBase);
+    if (GadToolsBase != NULL) CloseLibrary(GadToolsBase);
     if (IntuitionBase != NULL) CloseLibrary((struct Library *)IntuitionBase);
 
     LabelBase = NULL;
@@ -204,6 +210,7 @@ static void ap_gui_close_classes(void)
     ButtonBase = NULL;
     LayoutBase = NULL;
     WindowBase = NULL;
+    GadToolsBase = NULL;
     IntuitionBase = NULL;
 }
 
@@ -484,6 +491,16 @@ static Object *ap_gui_build_window(struct APGUI *gui)
                     CHILD_NominalSize, TRUE,
                     CHILD_WeightedWidth, 0,
 
+                    LAYOUT_AddChild, gui->gadgets[GID_ADVANCED] = ButtonObject,
+                        GA_ID, GID_ADVANCED,
+                        GA_RelVerify, TRUE,
+                        GA_TabCycle, TRUE,
+                        GA_Text, AP_TR(MSG_BUTTON_ADVANCED_REACTION, "_Advanced..."),
+                        BUTTON_TextPadding, TRUE,
+                    ButtonEnd,
+                    CHILD_NominalSize, TRUE,
+                    CHILD_WeightedWidth, 0,
+
                     LAYOUT_AddChild, gui->gadgets[GID_SAVE] = ButtonObject,
                         GA_ID, GID_SAVE,
                         GA_RelVerify, TRUE,
@@ -640,6 +657,8 @@ static void ap_gui_update_capabilities(struct APGUI *gui)
     unsigned int preferred_quality;
     const char *preferred_media;
 
+    ap_advanced_normalize_prefs(&gui->prefs, &gui->caps);
+
     snprintf(gui->model_text,
              sizeof(gui->model_text),
              "%s",
@@ -668,26 +687,26 @@ static void ap_gui_update_capabilities(struct APGUI *gui)
                  (unsigned int)gui->caps.ipp_version_minor);
     }
 
-    if (gui->caps.resolution_default.x != 0U) {
+    if (gui->prefs.resolution.x != 0U && gui->prefs.resolution.y != 0U) {
         snprintf(gui->resolution_text,
                  sizeof(gui->resolution_text),
                  AP_TR(MSG_FORMAT_DPI, "%lux%lu dpi"),
-                 (unsigned long)gui->caps.resolution_default.x,
-                 (unsigned long)gui->caps.resolution_default.y);
-    } else if (gui->caps.resolution_count != 0U) {
-        snprintf(gui->resolution_text,
-                 sizeof(gui->resolution_text),
-                 AP_TR(MSG_FORMAT_DPI, "%lux%lu dpi"),
-                 (unsigned long)gui->caps.resolutions[0].x,
-                 (unsigned long)gui->caps.resolutions[0].y);
+                 (unsigned long)gui->prefs.resolution.x,
+                 (unsigned long)gui->prefs.resolution.y);
     } else {
-        snprintf(gui->resolution_text, sizeof(gui->resolution_text), "%s", AP_TR(MSG_NOT_REPORTED, "Not reported"));
+        snprintf(gui->resolution_text, sizeof(gui->resolution_text), "%s",
+                 AP_TR(MSG_PRINTER_DEFAULT, "Printer default"));
     }
 
-    snprintf(gui->duplex_text,
-             sizeof(gui->duplex_text),
-             "%s",
-             gui->caps.duplex_supported ? AP_TR(MSG_SUPPORTED, "Supported") : AP_TR(MSG_NOT_SUPPORTED, "Not supported"));
+    if (strcmp(gui->prefs.sides, "two-sided-long-edge") == 0)
+        snprintf(gui->duplex_text, sizeof(gui->duplex_text), "%s",
+                 AP_TR(MSG_SIDES_LONG, "Two-sided (long edge)"));
+    else if (strcmp(gui->prefs.sides, "two-sided-short-edge") == 0)
+        snprintf(gui->duplex_text, sizeof(gui->duplex_text), "%s",
+                 AP_TR(MSG_SIDES_SHORT, "Two-sided (short edge)"));
+    else
+        snprintf(gui->duplex_text, sizeof(gui->duplex_text), "%s",
+                 AP_TR(MSG_SIDES_ONE, "One-sided"));
 
     ap_gui_format_ink(gui);
     ap_gui_build_options(gui);
@@ -1078,8 +1097,8 @@ static int ap_gui_query(struct APGUI *gui)
     gui->prefs.port = port;
     snprintf(gui->prefs.path, sizeof(gui->prefs.path), "%s", path);
 
-    ap_gui_update_capabilities(gui);
     gui->queried = 1;
+    ap_gui_update_capabilities(gui);
     return 1;
 }
 
@@ -1151,8 +1170,10 @@ static int ap_gui_capture_selections(struct APGUI *gui)
 static int ap_gui_testpage(struct APGUI *gui)
 {
     struct APPrintResult print_result;
+    struct APTestPageDocument testpage;
     char error_text[160];
     char message[192];
+    int ok;
 
     if (!gui->queried) {
         ap_gui_set_status(gui, AP_TR(MSG_STATUS_QUERY_BEFORE_TEST, "Query the printer before printing a test page"));
@@ -1165,16 +1186,39 @@ static int ap_gui_testpage(struct APGUI *gui)
 
     ap_gui_set_status(gui, AP_TR(MSG_STATUS_PRINTING_TEST, "Printing test page..."));
 
-    if (!ap_print_document(&gui->prefs,
+    error_text[0] = '\0';
+    if (!ap_testpage_build(&gui->prefs,
                            &gui->caps,
                            gui->queried,
-                           g_airprint_testpage_jpeg,
-                           g_airprint_testpage_jpeg_len,
-                           "image/jpeg",
+                           &testpage,
+                           error_text,
+                           sizeof(error_text))) {
+        snprintf(message,
+                 sizeof(message),
+                 AP_TR(MSG_FORMAT_TEST_FAILED, "Test page failed: %s"),
+                 error_text[0] != '\0' ? error_text : AP_TR(MSG_UNKNOWN_PRINT_ERROR, "Unknown print error"));
+        ap_gui_set_status(gui, message);
+        return 0;
+    }
+
+    ok = ap_print_document(&gui->prefs,
+                           &gui->caps,
+                           gui->queried,
+                           testpage.data,
+                           testpage.length,
+                           testpage.format,
                            AP_TR(MSG_TESTPAGE_JOB_NAME, "AmigaOS AirPrint Test Page"),
                            &print_result,
                            error_text,
-                           sizeof(error_text))) {
+                           sizeof(error_text));
+    ap_testpage_free(&testpage);
+
+    if (ok && print_result.postbody_http_500_accepted) {
+        /* Remember the observed firmware quirk; Save persists it. */
+        gui->caps.http_postbody_500_ok = 1;
+    }
+
+    if (!ok) {
         snprintf(message,
                  sizeof(message),
                  AP_TR(MSG_FORMAT_TEST_FAILED, "Test page failed: %s"),
@@ -1296,6 +1340,19 @@ static int ap_gui_run(struct APGUI *gui)
 
                         case GID_SEARCH:
                             (void)ap_gui_search(gui);
+                            break;
+
+                        case GID_ADVANCED:
+                            if (!gui->queried) {
+                                ap_gui_set_status(gui,
+                                    AP_TR(MSG_STATUS_QUERY_BEFORE_ADVANCED,
+                                          "Query the printer before opening advanced options"));
+                            } else if (ap_gui_capture_selections(gui) &&
+                                       ap_advanced_requester(gui->window->WScreen,
+                                                             &gui->prefs,
+                                                             &gui->caps)) {
+                                ap_gui_update_capabilities(gui);
+                            }
                             break;
 
                         case GID_TESTPAGE:

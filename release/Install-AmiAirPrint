@@ -1,0 +1,151 @@
+; AmiAirPrint Installer script
+; Compatible with Commodore/Amiga Technologies Installer 43.3
+;
+; Expected directory layout:
+;
+;   Install-AmiAirPrint
+;   Setup/
+;     AmiAirPrintPrefsClassic
+;     AmiAirPrintPrefs
+;     AmiAirPrint.info
+;     airprint.device
+;     AirPrint
+;     Locale/
+;       Catalogs/
+;         AmiAirPrint.cd
+;         deutsch/
+;           <AmiAirPrint.catalog>
+;           <German .ct file>
+;
+; The selected preferences tool is installed as SYS:Prefs/AmiAirPrint.
+; AmiAirPrint.info is copied unchanged so its STACK=80000 setting is preserved.
+
+(user 1)
+
+(onerror
+    (abort "AmiAirPrint installation failed.\n\nPlease check that all files are present in the Setup drawer and that the system disk is writable.")
+)
+
+(message "AmiAirPrint for AmigaOS")
+
+(if (= (exists "Setup/AmiAirPrintPrefsClassic") 0)
+    (abort "Required file not found:\nSetup/AmiAirPrintPrefsClassic")
+)
+(if (= (exists "Setup/AmiAirPrintPrefs") 0)
+    (abort "Required file not found:\nSetup/AmiAirPrintPrefs")
+)
+(if (= (exists "Setup/AmiAirPrint.info") 0)
+    (abort "Required file not found:\nSetup/AmiAirPrint.info")
+)
+(if (= (exists "Setup/airprint.device") 0)
+    (abort "Required file not found:\nSetup/airprint.device")
+)
+(if (= (exists "Setup/AirPrint") 0)
+    (abort "Required file not found:\nSetup/AirPrint")
+)
+(if (= (exists "Setup/Locale/Catalogs/AmiAirPrint.cd") 0)
+    (abort "Required file not found:\nSetup/Locale/Catalogs/AmiAirPrint.cd")
+)
+
+(set os-version
+    (askchoice
+        (prompt "Please select your AmigaOS version:")
+        (help "AmigaOS 3.0 / 3.1 installs the GadTools preferences program.\n\nAmigaOS 3.2+ installs the ReAction preferences program.")
+        (choices
+            "AmigaOS 3.0 / 3.1"
+            "AmigaOS 3.2+"
+        )
+        (default 0)
+    )
+)
+
+(set language
+    (askchoice
+        (prompt "Please select your language:")
+        (help "English uses the built-in AmiAirPrint interface strings.\n\nDeutsch installs the German AmiAirPrint catalog.")
+        (choices
+            "English (Built-in)"
+            "Deutsch"
+        )
+        (default 0)
+    )
+)
+
+(if (= language 1)
+    (
+        (if (< (exists "Setup/Locale/Catalogs/deutsch") 2)
+            (abort "Required drawer not found:\nSetup/Locale/Catalogs/deutsch")
+        )
+    )
+)
+
+(if (= os-version 0)
+    (
+        (copyfiles
+            (source "Setup/AmiAirPrintPrefsClassic")
+            (dest "SYS:Prefs")
+            (newname "AmiAirPrint")
+            (optional "force")
+        )
+    )
+    (
+        (copyfiles
+            (source "Setup/AmiAirPrintPrefs")
+            (dest "SYS:Prefs")
+            (newname "AmiAirPrint")
+            (optional "force")
+        )
+    )
+)
+
+(copyfiles
+    (source "Setup/AmiAirPrint.info")
+    (dest "SYS:Prefs")
+    (optional "force")
+)
+
+(if (< (exists "SYS:Locale") 2)
+    ((makedir "SYS:Locale"))
+)
+(if (< (exists "SYS:Locale/Catalogs") 2)
+    ((makedir "SYS:Locale/Catalogs"))
+)
+
+(copyfiles
+    (source "Setup/Locale/Catalogs/AmiAirPrint.cd")
+    (dest "SYS:Locale/Catalogs")
+    (optional "force")
+)
+
+(if (= language 1)
+    (
+        (if (< (exists "SYS:Locale/Catalogs/deutsch") 2)
+            ((makedir "SYS:Locale/Catalogs/deutsch"))
+        )
+        (copyfiles
+            (source "Setup/Locale/Catalogs/deutsch")
+            (dest "SYS:Locale/Catalogs/deutsch")
+            (all)
+            (optional "force")
+        )
+    )
+)
+
+(copyfiles
+    (source "Setup/airprint.device")
+    (dest "SYS:DEVS")
+    (optional "force")
+)
+
+(if (< (exists "SYS:DEVS/Printers") 2)
+    ((makedir "SYS:DEVS/Printers"))
+)
+
+(copyfiles
+    (source "Setup/AirPrint")
+    (dest "SYS:DEVS/Printers")
+    (optional "force")
+)
+
+(complete 100)
+(message "AmiAirPrint successfully installed.\n\nPlease restart your Amiga before using AmiAirPrint.")

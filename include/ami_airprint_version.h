@@ -4,29 +4,27 @@
 /*
  * AmiAirPrint package / preferences version.
  *
- * Version 1.1 adds mDNS/DNS-SD printer discovery in the preferences tools.
- * The classic printer-driver segment and airprint.device did not change for
- * this release, so their independently visible versions stay frozen at the
- * tested 1.0 values below.
+ * Version 1.2 adds selectable PWG/PDF/PostScript output, capability-backed
+ * paper source and resolution controls, real PWG duplex submission and an
+ * SSDP discovery fallback. The classic PRT:/CMD_WRITE and PersonalPaint paths
+ * remain available and PWG/one-sided stays the backward-compatible default.
  */
 #define AMIAIRPRINT_VERSION_MAJOR 1
-#define AMIAIRPRINT_VERSION_MINOR 1
-#define AMIAIRPRINT_VERSION_TEXT "1.1"
-#define AMIAIRPRINT_VERSION_DATE "22.8.2026"
-#define AMIAIRPRINT_VERSION_DATE_LONG "22 Aug 2026"
+#define AMIAIRPRINT_VERSION_MINOR 2
+#define AMIAIRPRINT_VERSION_TEXT "1.2"
+#define AMIAIRPRINT_VERSION_DATE "28.8.2026"
+#define AMIAIRPRINT_VERSION_DATE_LONG "28 Aug 2026"
 
-/* Explicit preferences aliases: these track the package release. */
 #define AMIAIRPRINT_PREFS_VERSION_MAJOR AMIAIRPRINT_VERSION_MAJOR
 #define AMIAIRPRINT_PREFS_VERSION_MINOR AMIAIRPRINT_VERSION_MINOR
 #define AMIAIRPRINT_PREFS_VERSION_TEXT AMIAIRPRINT_VERSION_TEXT
 #define AMIAIRPRINT_PREFS_VERSION_DATE AMIAIRPRINT_VERSION_DATE
 #define AMIAIRPRINT_PREFS_VERSION_DATE_LONG AMIAIRPRINT_VERSION_DATE_LONG
 
-/* Unchanged core / diagnostic components carried over from AmiAirPrint 1.0. */
 #define AMIAIRPRINT_CORE_VERSION_MAJOR 1
-#define AMIAIRPRINT_CORE_VERSION_MINOR 0
-#define AMIAIRPRINT_CORE_VERSION_TEXT "1.0"
-#define AMIAIRPRINT_CORE_VERSION_DATE "22.8.2026"
-#define AMIAIRPRINT_CORE_VERSION_DATE_LONG "22 Aug 2026"
+#define AMIAIRPRINT_CORE_VERSION_MINOR 2
+#define AMIAIRPRINT_CORE_VERSION_TEXT "1.2"
+#define AMIAIRPRINT_CORE_VERSION_DATE "28.8.2026"
+#define AMIAIRPRINT_CORE_VERSION_DATE_LONG "28 Aug 2026"
 
 #endif

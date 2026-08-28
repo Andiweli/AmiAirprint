@@ -1,60 +1,62 @@
-Short:        AirPrint/IPP printer driver for Amiga
+Short:        Native AirPrint/IPP for AmigaOS
 Uploader:     Andreas "Andiweli" Stuermer
 Author:       Andreas "Andiweli" Stuermer
 Type:         driver/print
-Version:      1.1
+Version:      1.2
 Architecture: m68k-amigaos >= 3.0.0
 
 AmiAirPrint is a native AirPrint/IPP printer solution for classic AmigaOS.
-It integrates with the standard printer.device system and prints directly to
-IPP/AirPrint network printers without a PC print server or CUPS.
+It integrates with printer.device and prints directly to compatible network
+printers without CUPS or a PC print server.
 
 Main features:
 
 - AmigaOS 3.0+ and Motorola 68000 compatible
 - PWG Raster graphics printing through printer.device
+- PDF and PostScript output when advertised by the printer
 - processed PRT:/CMD_WRITE text printing with Latin-1 support
 - color and monochrome output
 - Portrait and Landscape
+- duplex long-edge and short-edge printing
+- printer-reported paper source / tray selection
+- printer capability-based DPI selection
 - paper/media, quality and color-mode selection
 - 10-100% graphics scaling and optional centering
 - GadTools preferences program for AmigaOS 3.0/3.1
 - ReAction preferences program for AmigaOS 3.2+
-- ReAction.prefs-aware spacing in the ReAction preferences GUI
-- locale.library/catalog support with built-in English fallback
-- AmiAirPrint.cd included for third-party translations
-- automatic local AirPrint / IPP discovery via mDNS/DNS-SD
-- IPP capability query and test page
-- Installer 43.3 installation script
+- Advanced print options in both preferences programs
+- locale.library support with built-in English fallback
+- maintained German translation source
+- local printer discovery through mDNS/DNS-SD and SSDP
+- IPP capability query and capability-aware test page
+- HTTP/IPP compatibility handling for problematic printer firmware
+- Installer 43.3 compatible installation script
+
+Release 1.2 also fixes FinalWriter striped-printing / endless blank-page
+behaviour and Wordworth multi-page graphics/form-feed handling.
+
+Verified application paths include PersonalPaint, MultiView, FinalWriter,
+Wordworth 5 and IBrowse processed text, including multi-page duplex output.
 
 Component versions:
 
-- package / preferences: 1.1
-- AirPrint printer driver: 43.40
-- airprint.device: 1.0
-- AirPrintPrinterTest: 1.0
-
-Verified printing core (unchanged from version 1.0):
-
-- Personal Paint color graphics printing
-- MultiView graphics printing
-- IBrowse text-only printing
-- built-in monochrome test page
+- package / preferences: 1.2
+- AirPrint printer driver: 43.43
+- airprint.device: 1.2
+- diagnostic tools: 1.2
 
 Requirements:
 
-- a TCP/IP stack providing bsdsocket.library
-- an IPP/AirPrint-capable network printer reachable by IPv4 address
+- TCP/IP stack providing bsdsocket.library
+- IPv4-reachable IPP/AirPrint printer
+
+AmiAirPrint currently uses plain HTTP/IPP. TLS-only IPPS endpoints are not
+supported.
 
 After installation, select AirPrint as the printer driver and Parallel as the
-port in the normal AmigaOS Printer preferences. Parallel is only a required
-compatibility selection; AmiAirPrint sends its data directly through
+port in the normal AmigaOS Printer preferences. Parallel is only a classic
+printer.device compatibility selection; network data is sent directly through
 airprint.device.
-
-Known limitations in version 1.1:
-
-- IBrowse's printer path is text-only and may print image ALT placeholders
-- PRD_RAWWRITE is not treated as portable text output
 
 AmiAirPrint is released under the MIT License.
 The embedded font8x8 Latin-1 bitmap data is Public Domain.

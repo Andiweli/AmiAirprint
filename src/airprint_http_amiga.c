@@ -40,6 +40,8 @@ struct APHTTPWorkspace {
 struct Library *SocketBase = NULL;
 
 static char g_last_error[192];
+static int g_last_request_body_sent;
+static int g_last_request_body_complete;
 
 static void ap_set_error(const char *message)
 {
@@ -60,6 +62,16 @@ static void ap_set_socket_error(const char *prefix)
 const char *ap_http_last_error(void)
 {
     return g_last_error;
+}
+
+int ap_http_last_request_body_sent(void)
+{
+    return g_last_request_body_sent;
+}
+
+int ap_http_last_request_body_complete(void)
+{
+    return g_last_request_body_complete;
 }
 
 int ap_http_open(void)
@@ -805,7 +817,7 @@ static int ap_raw_response_complete(
     return 1;
 }
 
-int ap_http_post_ipp(
+static int ap_http_post_ipp_mode(
     const char *host,
     uint16_t port,
     const char *path,
@@ -813,7 +825,8 @@ int ap_http_post_ipp(
     size_t request_body_len,
     uint8_t **response_body,
     size_t *response_body_len,
-    int *http_status)
+    int *http_status,
+    int use_expect)
 {
     int sock;
     struct sockaddr_in address;
@@ -845,6 +858,8 @@ int ap_http_post_ipp(
     *response_body = NULL;
     *response_body_len = 0U;
     *http_status = 0;
+    g_last_request_body_sent = 0;
+    g_last_request_body_complete = 0;
 
     if (SocketBase == NULL) {
         ap_set_error("bsdsocket.library is not open");
@@ -884,22 +899,40 @@ int ap_http_post_ipp(
     header = workspace->header;
     preflight = workspace->preflight;
 
-    header_len = snprintf(
-        header,
-        AP_HTTP_HEADER_MAX,
-        "POST %s HTTP/1.1\r\n"
-        "Host: %s:%u\r\n"
-        "User-Agent: AmiAirPrint/" AMIAIRPRINT_VERSION_TEXT " AmigaOS\r\n"
-        "Content-Type: application/ipp\r\n"
-        "Accept: application/ipp\r\n"
-        "Content-Length: %lu\r\n"
-        "Expect: 100-continue\r\n"
-        "Connection: close\r\n"
-        "\r\n",
-        path,
-        host,
-        (unsigned int)port,
-        (unsigned long)request_body_len);
+    if (use_expect) {
+        header_len = snprintf(
+            header,
+            AP_HTTP_HEADER_MAX,
+            "POST %s HTTP/1.1\r\n"
+            "Host: %s:%u\r\n"
+            "User-Agent: AmiAirPrint/" AMIAIRPRINT_VERSION_TEXT " AmigaOS\r\n"
+            "Content-Type: application/ipp\r\n"
+            "Accept: application/ipp\r\n"
+            "Content-Length: %lu\r\n"
+            "Expect: 100-continue\r\n"
+            "Connection: close\r\n"
+            "\r\n",
+            path,
+            host,
+            (unsigned int)port,
+            (unsigned long)request_body_len);
+    } else {
+        header_len = snprintf(
+            header,
+            AP_HTTP_HEADER_MAX,
+            "POST %s HTTP/1.1\r\n"
+            "Host: %s:%u\r\n"
+            "User-Agent: AmiAirPrint/" AMIAIRPRINT_VERSION_TEXT " AmigaOS\r\n"
+            "Content-Type: application/ipp\r\n"
+            "Accept: application/ipp\r\n"
+            "Content-Length: %lu\r\n"
+            "Connection: close\r\n"
+            "\r\n",
+            path,
+            host,
+            (unsigned int)port,
+            (unsigned long)request_body_len);
+    }
 
     if (header_len <= 0 || (size_t)header_len >= AP_HTTP_HEADER_MAX) {
         ap_set_error("HTTP request header is too large");
@@ -908,33 +941,52 @@ int ap_http_post_ipp(
         return 0;
     }
 
-    /* Phase 1: send the HTTP header only. */
+    preflight_len = 0U;
+    got_continue = 0;
+    preflight_final_status = 0;
+
+    /* Phase 1: send the HTTP header. */
     if (!ap_send_all(sock, (const uint8_t *)header, (size_t)header_len)) {
         free(workspace);
         CloseSocket(sock);
         return 0;
     }
 
-    /* Phase 2: wait for 100 Continue or a final HTTP rejection. */
-    if (!ap_wait_for_continue(
-            sock,
-            preflight,
-            AP_HTTP_PREFLIGHT_MAX,
-            &preflight_len,
-            &got_continue,
-            &preflight_final_status)) {
-        free(workspace);
-        CloseSocket(sock);
-        return 0;
-    }
+    if (use_expect) {
+        /* Phase 2a: wait for 100 Continue or a final HTTP rejection. */
+        if (!ap_wait_for_continue(
+                sock,
+                preflight,
+                AP_HTTP_PREFLIGHT_MAX,
+                &preflight_len,
+                &got_continue,
+                &preflight_final_status)) {
+            free(workspace);
+            CloseSocket(sock);
+            return 0;
+        }
 
-    /* Only after 100 Continue is the IPP body transmitted. */
-    if (got_continue) {
+        /* Only after 100 Continue is the IPP body transmitted. */
+        if (got_continue) {
+            /* Mark before send_all: even a partial body transmission makes a
+             * Print-Job retry unsafe because the printer may have consumed it. */
+            g_last_request_body_sent = 1;
+            if (!ap_send_all(sock, request_body, request_body_len)) {
+                free(workspace);
+                CloseSocket(sock);
+                return 0;
+            }
+            g_last_request_body_complete = 1;
+        }
+    } else {
+        /* Compatibility mode: send the IPP request body immediately. */
+        g_last_request_body_sent = 1;
         if (!ap_send_all(sock, request_body, request_body_len)) {
             free(workspace);
             CloseSocket(sock);
             return 0;
         }
+        g_last_request_body_complete = 1;
     }
 
     raw_capacity = AP_HTTP_INITIAL_BUFFER;
@@ -1119,3 +1171,34 @@ int ap_http_post_ipp(
     g_last_error[0] = '\0';
     return 1;
 }
+
+int ap_http_post_ipp(
+    const char *host,
+    uint16_t port,
+    const char *path,
+    const uint8_t *request_body,
+    size_t request_body_len,
+    uint8_t **response_body,
+    size_t *response_body_len,
+    int *http_status)
+{
+    return ap_http_post_ipp_mode(
+        host, port, path, request_body, request_body_len,
+        response_body, response_body_len, http_status, 1);
+}
+
+int ap_http_post_ipp_no_expect(
+    const char *host,
+    uint16_t port,
+    const char *path,
+    const uint8_t *request_body,
+    size_t request_body_len,
+    uint8_t **response_body,
+    size_t *response_body_len,
+    int *http_status)
+{
+    return ap_http_post_ipp_mode(
+        host, port, path, request_body, request_body_len,
+        response_body, response_body_len, http_status, 0);
+}
+

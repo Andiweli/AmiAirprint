@@ -8,14 +8,19 @@
 #define AP_PREFS_HOST_LEN    64
 #define AP_PREFS_PATH_LEN    128
 #define AP_PREFS_VALUE_LEN   96
+#define AP_PREFS_ENGINE_LEN  20
 
 struct APPrefs {
     char host[AP_PREFS_HOST_LEN];
     unsigned int port;
     char path[AP_PREFS_PATH_LEN];
+    char engine[AP_PREFS_ENGINE_LEN];
     char color_mode[AP_PREFS_VALUE_LEN];
     unsigned int quality;
     char media[AP_PREFS_VALUE_LEN];
+    char media_source[AP_PREFS_VALUE_LEN];
+    char sides[AP_PREFS_VALUE_LEN];
+    struct APResolution resolution;
     char orientation[AP_PREFS_VALUE_LEN];
     unsigned int scale_percent;
     int center_on_paper;

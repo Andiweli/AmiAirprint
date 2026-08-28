@@ -77,6 +77,18 @@ static int ap_caps_has_media(
     return 0;
 }
 
+static int ap_caps_has_resolution(const struct APPrinterCapabilities *caps,
+                                  uint32_t x, uint32_t y, uint8_t units)
+{
+    unsigned int i;
+    if (caps == NULL) return 0;
+    for (i = 0U; i < caps->resolution_count; ++i) {
+        if (caps->resolutions[i].x == x && caps->resolutions[i].y == y &&
+            caps->resolutions[i].units == units) return 1;
+    }
+    return 0;
+}
+
 static int ap_caps_is_custom_bound(const char *media)
 {
     if (media == NULL) return 0;
@@ -172,12 +184,41 @@ static void ap_caps_attribute(
         return;
     }
 
+    if (strcmp(name, "pwg-raster-document-sheet-back") == 0) {
+        ap_caps_copy_string(caps->pwg_raster_sheet_back,
+                            sizeof(caps->pwg_raster_sheet_back),
+                            value, value_len);
+        return;
+    }
+
     if (strcmp(name, "sides-supported") == 0) {
         ap_caps_copy_string(text, sizeof(text), value, value_len);
-        if (strcmp(text, "two-sided-long-edge") == 0 ||
-            strcmp(text, "two-sided-short-edge") == 0) {
+        if (strcmp(text, "two-sided-long-edge") == 0) {
             caps->duplex_supported = 1;
+            caps->duplex_long_edge_supported = 1;
+        } else if (strcmp(text, "two-sided-short-edge") == 0) {
+            caps->duplex_supported = 1;
+            caps->duplex_short_edge_supported = 1;
         }
+        return;
+    }
+
+    if (strcmp(name, "sides-default") == 0) {
+        ap_caps_copy_string(caps->sides_default, sizeof(caps->sides_default),
+                            value, value_len);
+        return;
+    }
+
+    if (strcmp(name, "document-format-supported") == 0) {
+        ap_caps_copy_string(text, sizeof(text), value, value_len);
+        if (strcmp(text, "image/pwg-raster") == 0)
+            caps->format_pwg_raster_supported = 1;
+        else if (strcmp(text, "application/pdf") == 0)
+            caps->format_pdf_supported = 1;
+        else if (strcmp(text, "application/postscript") == 0)
+            caps->format_postscript_supported = 1;
+        else if (strcmp(text, "image/jpeg") == 0)
+            caps->format_jpeg_supported = 1;
         return;
     }
 
@@ -214,13 +255,19 @@ static void ap_caps_attribute(
         return;
     }
 
-    if (strcmp(name, "printer-resolution-supported") == 0 && value_len == 9U) {
-        if (caps->resolution_count < AP_CAPS_MAX_RESOLUTIONS) {
+    if ((strcmp(name, "printer-resolution-supported") == 0 ||
+         strcmp(name, "pwg-raster-document-resolution-supported") == 0) &&
+        value_len == 9U) {
+        uint32_t x = ap_caps_get_u32(value);
+        uint32_t y = ap_caps_get_u32(value + 4U);
+        uint8_t units = value[8];
+        if (caps->resolution_count < AP_CAPS_MAX_RESOLUTIONS &&
+            !ap_caps_has_resolution(caps, x, y, units)) {
             struct APResolution *resolution;
             resolution = &caps->resolutions[caps->resolution_count++];
-            resolution->x = ap_caps_get_u32(value);
-            resolution->y = ap_caps_get_u32(value + 4U);
-            resolution->units = value[8];
+            resolution->x = x;
+            resolution->y = y;
+            resolution->units = units;
         }
         return;
     }
@@ -250,6 +297,27 @@ static void ap_caps_attribute(
 
     if (strcmp(name, "media-default") == 0) {
         ap_caps_copy_string(caps->media_default, sizeof(caps->media_default), value, value_len);
+        return;
+    }
+
+    if (strcmp(name, "media-source-supported") == 0) {
+        if (caps->media_source_count < AP_CAPS_MAX_MEDIA_SOURCES) {
+            char source[AP_CAPS_SOURCE_LEN];
+            ap_caps_copy_string(source, sizeof(source), value, value_len);
+            if (!ap_caps_has_media(caps->media_sources,
+                                   caps->media_source_count, source)) {
+                snprintf(caps->media_sources[caps->media_source_count],
+                         sizeof(caps->media_sources[caps->media_source_count]),
+                         "%s", source);
+                ++caps->media_source_count;
+            }
+        }
+        return;
+    }
+
+    if (strcmp(name, "media-source-default") == 0) {
+        ap_caps_copy_string(caps->media_source_default,
+                            sizeof(caps->media_source_default), value, value_len);
         return;
     }
 
@@ -319,6 +387,8 @@ int ap_caps_query(
     static uint8_t request[AP_IPP_MAX_REQUEST];
     char printer_uri[384];
     size_t i;
+    int prefer_no_expect;
+    int expect_reject_status;
 
     if (host == NULL || host[0] == '\0' ||
         path == NULL || path[0] != '/' ||
@@ -332,6 +402,9 @@ int ap_caps_query(
         ap_caps_set_error(error_text, error_text_size, "Printer URI is too long");
         return 0;
     }
+
+    prefer_no_expect = 0;
+    expect_reject_status = 0;
 
     for (i = 0U; i < sizeof(g_versions) / sizeof(g_versions[0]); ++i) {
         size_t request_size;
@@ -357,26 +430,68 @@ int ap_caps_query(
             return 0;
         }
 
-        if (!ap_http_post_ipp(host,
-                              port,
-                              path,
-                              request,
-                              request_size,
-                              &response,
-                              &response_size,
-                              &http_status)) {
+        if (prefer_no_expect) {
+            if (!ap_http_post_ipp_no_expect(host,
+                                            port,
+                                            path,
+                                            request,
+                                            request_size,
+                                            &response,
+                                            &response_size,
+                                            &http_status)) {
+                ap_caps_set_error(error_text, error_text_size, ap_http_last_error());
+                return 0;
+            }
+        } else {
+            if (!ap_http_post_ipp(host,
+                                  port,
+                                  path,
+                                  request,
+                                  request_size,
+                                  &response,
+                                  &response_size,
+                                  &http_status)) {
+                /*
+                 * A transport failure is independent of the requested IPP
+                 * protocol version. Retrying 2.0 -> 1.1 -> 1.0 would only repeat
+                 * the same TCP timeout for an offline printer and can freeze the
+                 * synchronous Prefs query for three timeout periods.
+                 *
+                 * Version fallback is still retained for actual HTTP/IPP
+                 * responses below, where the printer has answered and the
+                 * requested IPP version can genuinely matter.
+                 */
+                ap_caps_set_error(error_text, error_text_size, ap_http_last_error());
+                return 0;
+            }
+
             /*
-             * A transport failure is independent of the requested IPP
-             * protocol version. Retrying 2.0 -> 1.1 -> 1.0 would only repeat
-             * the same TCP timeout for an offline printer and can freeze the
-             * synchronous Prefs query for three timeout periods.
-             *
-             * Version fallback is still retained for actual HTTP/IPP
-             * responses below, where the printer has answered and the
-             * requested IPP version can genuinely matter.
+             * Some embedded printer HTTP servers reject Expect: 100-continue
+             * with 417 or even the generic 500 Internal Server Error.  This is
+             * safe to retry here because Get-Printer-Attributes has no printing
+             * side effect.  Print-Job continues to use the normal Expect path.
+             * Once detected, keep compatibility mode for IPP version fallback.
              */
-            ap_caps_set_error(error_text, error_text_size, ap_http_last_error());
-            return 0;
+            if (http_status == 417 || http_status == 500) {
+                if (expect_reject_status == 0) expect_reject_status = http_status;
+                ap_http_free(response);
+                response = NULL;
+                response_size = 0U;
+                http_status = 0;
+                prefer_no_expect = 1;
+
+                if (!ap_http_post_ipp_no_expect(host,
+                                                port,
+                                                path,
+                                                request,
+                                                request_size,
+                                                &response,
+                                                &response_size,
+                                                &http_status)) {
+                    ap_caps_set_error(error_text, error_text_size, ap_http_last_error());
+                    return 0;
+                }
+            }
         }
 
         if (http_status != 200) {
@@ -409,6 +524,8 @@ int ap_caps_query(
         ap_caps_reset(caps);
         caps->ipp_version_major = g_versions[i].major;
         caps->ipp_version_minor = g_versions[i].minor;
+        caps->http_no_expect_required = prefer_no_expect;
+        caps->http_expect_reject_status = (unsigned int)expect_reject_status;
         snprintf(caps->resolved_path, sizeof(caps->resolved_path), "%s", path);
 
         if (!ap_ipp_parse_response(response,

@@ -32,7 +32,10 @@ struct APDiscoveryResult {
  *
  * bsdsocket.library must already be open through ap_http_open().
  */
+/* Combined search: existing mDNS/DNS-SD plus a supplementary SSDP pass. */
 int ap_discovery_search(struct APDiscoveryResult *result);
+/* Internal mDNS implementation used by the combined search wrapper. */
+int ap_discovery_search_mdns(struct APDiscoveryResult *result);
 const char *ap_discovery_last_error(void);
 
 #endif
