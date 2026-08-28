@@ -26,6 +26,12 @@ AmiAirPrint integrates network printers with the standard AmigaOS `printer.devic
 - both preferences programs use the same settings file
 - locale.library/catalog support with built-in English fallback
 - AmiAirPrint can discover local IPP/AirPrint printers via mDNS/DNS-SD
+- Duplex printing support (long-edge / short-edge)
+- Paper source / tray selection
+- Printer capability-based DPI selection
+- PDF and PostScript output support alongside PWG Raster
+- Advanced print settings for ReAction and GadTools
+- Improved compatibility with printers using non-standard HTTP/IPP behavior
 
 ## Screenshots
 
