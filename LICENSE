@@ -1,16 +1,54 @@
-MIT License
+AmiAirPrint Non-Commercial License 1.0
 
 Copyright (c) 2026 Andreas "Andiweli" Stuermer
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+of this software and associated documentation files (the "Software"), to use,
+copy, study, modify, compile, and redistribute the Software, in source or
+binary form, solely for non-commercial purposes, subject to the following
+conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. NON-COMMERCIAL USE ONLY
+
+The Software, including modified versions and derivative works, may not be
+used for commercial purposes without prior written permission from the
+copyright holder.
+
+Commercial use includes, without limitation:
+
+- selling, licensing, renting, or otherwise providing the Software or a
+  derivative work for a fee or other commercial consideration;
+- including or bundling the Software or a derivative work with any paid
+  software, hardware product, service, subscription, or commercial package;
+- using the Software or substantial portions of it to create, develop, or
+  provide commercial software, products, or services;
+- distributing the Software or a derivative work where access requires
+  payment, purchase, subscription, or other monetary compensation.
+
+Personal, hobby, educational, archival, and other genuinely non-commercial
+use is permitted. Free redistribution for non-commercial purposes is also
+permitted. Voluntary donations made directly to the original copyright
+holder do not constitute commercial use under this license.
+
+2. REDISTRIBUTION AND DERIVATIVE WORKS
+
+Any copy, redistribution, modified version, or derivative work must retain
+this copyright notice and this license text. Such redistribution may not
+remove or weaken the non-commercial restrictions of this license.
+
+3. COMMERCIAL LICENSING
+
+Commercial use is only permitted under a separate written license granted by
+the copyright holder. Contact the copyright holder to request commercial
+licensing terms.
+
+4. THIRD-PARTY COMPONENTS
+
+This license applies only to portions of the project for which the above
+copyright holder owns the applicable rights. Third-party components remain
+subject to their respective licenses as documented by the project.
+
+5. NO WARRANTY
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
