@@ -167,7 +167,7 @@ The other binaries produced by the Makefile are diagnostics and development tool
 
 ## License
 
-AmiAirPrint is released under the MIT License. See `LICENSE`.
+AmiAirPrint is source-available under the **AmiAirPrint Non-Commercial License 1.0**. Personal, hobby, educational and other non-commercial use, modification and free redistribution are permitted. Commercial use, commercial distribution, paid bundling, or using AmiAirPrint or substantial portions of it to create commercial software, products, or services is prohibited without prior written permission from the copyright holder. See `LICENSE`.
 
 The embedded 8x8 Latin-1 bitmap font is derived from Daniel Hepper's `font8x8` collection and is Public Domain. See `THIRD-PARTY.md`.
 
